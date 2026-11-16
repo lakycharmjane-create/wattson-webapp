@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Wattson</title>
+  <!-- Библиотека Telegram: даёт объект window.Telegram.WebApp -->
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="wrap">
+    <h1 id="hello">Привет!</h1>
+    <p class="muted">Это мини-приложение бота @WattsonEdu_Bot.</p>
+
+    <section class="card">
+      <p>Нажато раз: <b id="count">0</b></p>
+      <button id="btn" class="btn">Нажми меня</button>
+    </section>
+
+    <p id="outside" class="muted hidden">
+      Страница открыта не в Telegram — часть функций не работает.
+    </p>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

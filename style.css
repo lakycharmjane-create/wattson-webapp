@@ -1,0 +1,43 @@
+/* Цвета берутся из темы Telegram (светлая/тёмная), а если их нет — запасные */
+:root {
+  --bg: var(--tg-theme-bg-color, #ffffff);
+  --text: var(--tg-theme-text-color, #1f1f1f);
+  --muted: var(--tg-theme-hint-color, #8a8a8a);
+  --card: var(--tg-theme-secondary-bg-color, #f2f2f2);
+  --accent: #f28c28;          /* оранжевый, как кот */
+  --accent-text: #ffffff;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+.wrap { padding: 20px 16px; max-width: 520px; margin: 0 auto; }
+h1 { margin: 0 0 8px; font-size: 24px; }
+.muted { color: var(--muted); }
+.hidden { display: none; }
+
+.card {
+  background: var(--card);
+  border-radius: 16px;
+  padding: 16px;
+  margin-top: 20px;
+}
+
+.btn {
+  width: 100%;
+  border: 0;
+  border-radius: 12px;
+  padding: 14px;
+  font-size: 16px;
+  font-weight: 600;
+  background: var(--accent);
+  color: var(--accent-text);
+  cursor: pointer;
+}
+.btn:active { transform: scale(0.98); }
