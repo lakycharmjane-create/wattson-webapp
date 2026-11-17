@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <title>Таблица лидеров</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <!-- Таблицу присылает бот в адресе: top.html?d=<base64url JSON>
+       {"t": время, "n": всего учеников, "u": [[ник, монеты, задачи, серия], …], "me": [ник, монеты, задачи, серия, место1, место2, место3] | null, "i": номер моей строки в "u" или -1}
+       В "u" — объединение лучших по каждой из трёх таблиц, страница сама сортирует. -->
+  <style>
+    :root {
+      --bg: var(--tg-theme-bg-color, #ffffff);
+      --text: var(--tg-theme-text-color, #2b2b2b);
+      --muted: var(--tg-theme-hint-color, #8a8a8a);
+      --card: var(--tg-theme-secondary-bg-color, #f3f3f6);
+      --line: rgba(128, 128, 128, .22);
+      --accent: #f28c28;
+      --gold: #ffc531; --silver: #c3cbd6; --bronze: #e0955a;
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body { margin: 0; min-height: 100%; }
+    body {
+      background: var(--bg); color: var(--text);
+      font-family: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+      user-select: none; overscroll-behavior: none;
+    }
+    .wrap { max-width: 520px; margin: 0 auto; padding: 0 16px 120px; }
+
+    /* шапка */
+    .hero {
+      margin: 0 -16px; padding: 18px 16px 74px; color: #fff; text-align: center;
+      background: radial-gradient(120% 90% at 50% 0%, #ffb054 0%, #f28c28 45%, #d9621a 100%);
+      border-radius: 0 0 28px 28px; position: relative; overflow: hidden;
+    }
+    .hero::before, .hero::after {
+      content: ""; position: absolute; border-radius: 50%; background: rgba(255,255,255,.12);
+    }
+    .hero::before { width: 180px; height: 180px; left: -60px; top: -70px; }
+    .hero::after { width: 120px; height: 120px; right: -30px; top: 30px; }
+    .hero h1 { margin: 0; font-size: 22px; font-weight: 800; letter-spacing: .3px; position: relative; }
+    .hero p { margin: 4px 0 0; font-size: 13px; opacity: .85; position: relative; }
+
+    /* вкладки */
+    .tabs {
+      display: flex; gap: 4px; padding: 4px; margin: 14px auto 0; max-width: 360px;
+      background: rgba(0,0,0,.16); border-radius: 14px; position: relative;
+    }
+    .tabs button {
+      flex: 1; border: 0; background: none; color: #fff; font: inherit; font-weight: 700; font-size: 14px;
+      padding: 8px 4px; border-radius: 11px; cursor: pointer; opacity: .85; transition: background .2s, color .2s;
+    }
+    .tabs button.on { background: #fff; color: #d9621a; opacity: 1; box-shadow: 0 2px 6px rgba(0,0,0,.15); }
+
+    /* пьедестал */
+    .podium { display: flex; align-items: flex-end; justify-content: center; gap: 10px; margin-top: -58px; position: relative; }
+    .pl { flex: 1; max-width: 120px; text-align: center; animation: rise .5s both; }
+    .pl.p1 { order: 2; animation-delay: .05s; } .pl.p2 { order: 1; animation-delay: .15s; } .pl.p3 { order: 3; animation-delay: .25s; }
+    .pl .av { margin: 0 auto 6px; width: 58px; height: 58px; font-size: 24px; border: 3px solid var(--bg); box-shadow: 0 0 0 3px var(--ring); }
+    .pl.p1 .av { width: 74px; height: 74px; font-size: 30px; }
+    .pl .crown { font-size: 24px; line-height: 1; height: 26px; }
+    .pl .nm { font-weight: 700; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .pl .vl { font-size: 13px; color: var(--muted); margin: 2px 0 6px; font-variant-numeric: tabular-nums; }
+    .pl .step {
+      border-radius: 14px 14px 0 0; color: #fff; font-weight: 800; font-size: 26px;
+      display: flex; align-items: flex-start; justify-content: center; padding-top: 8px;
+      background: linear-gradient(180deg, var(--ring), color-mix(in srgb, var(--ring) 70%, #000));
+    }
+    .p1 { --ring: var(--gold); } .p2 { --ring: var(--silver); } .p3 { --ring: var(--bronze); }
+    .p1 .step { height: 92px; } .p2 .step { height: 68px; } .p3 .step { height: 52px; }
+    .pl.empty .av { background: var(--card); color: var(--muted); }
+    .pl.me .nm { color: var(--accent); }
+
+    .av {
+      border-radius: 50%; display: flex; align-items: center; justify-content: center;
+      color: #fff; font-weight: 800; background: var(--avbg); flex: none;
+    }
+
+    /* список */
+    .list { margin-top: 0; background: var(--card); border-radius: 18px; overflow: hidden; }
+    .row { display: flex; align-items: center; gap: 12px; padding: 11px 14px; animation: fade .35s both; }
+    .row + .row { border-top: 1px solid var(--line); }
+    .row .pos { width: 26px; text-align: center; font-weight: 800; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .row .av { width: 38px; height: 38px; font-size: 16px; }
+    .row .nm { flex: 1; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .row .vl { font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .row.me { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+    .row.me .nm::after { content: " · ты"; color: var(--accent); font-weight: 700; }
+
+    .empty-state { text-align: center; color: var(--muted); padding: 30px 10px; }
+    .empty-state img { width: 110px; display: block; margin: 0 auto 10px; }
+
+    /* моё место — снизу */
+    .mine {
+      position: fixed; left: 0; right: 0; bottom: 0; padding: 10px 16px calc(12px + env(safe-area-inset-bottom));
+      background: linear-gradient(180deg, transparent, var(--bg) 30%);
+    }
+    .mine .card {
+      max-width: 488px; margin: 0 auto; display: flex; align-items: center; gap: 12px; padding: 12px 14px;
+      border-radius: 18px; color: #fff; background: linear-gradient(135deg, #f28c28, #d9621a);
+      box-shadow: 0 6px 20px rgba(217, 98, 26, .35);
+    }
+    .mine .big { font-size: 24px; font-weight: 800; min-width: 44px; text-align: center; }
+    .mine .av { width: 40px; height: 40px; font-size: 17px; border: 2px solid rgba(255,255,255,.7); }
+    .mine .txt { flex: 1; min-width: 0; }
+    .mine .txt b { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .mine .txt small { opacity: .85; }
+    .mine .vl { font-weight: 800; font-size: 17px; white-space: nowrap; }
+
+    .hidden { display: none !important; }
+    @keyframes rise { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
+    @keyframes fade { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: none; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="hero">
+      <h1>🏆 Таблица лидеров</h1>
+      <p id="sub">&nbsp;</p>
+      <nav class="tabs" id="tabs">
+        <button data-k="1">🪙 Монетки</button>
+        <button data-k="2">✅ Задачи</button>
+        <button data-k="3">🔥 Серия</button>
+      </nav>
+    </header>
+    <section class="podium" id="podium"></section>
+    <section class="list" id="list"></section>
+  </div>
+  <div class="mine hidden" id="mine"></div>
+
+  <script>
+    const tg = window.Telegram ? window.Telegram.WebApp : null;
+    if (tg) { tg.ready(); tg.expand(); }
+    const $ = (id) => document.getElementById(id);
+    const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+    const UNIT = { 1: ["🪙", ["монета", "монеты", "монет"]], 2: ["✅", ["задача", "задачи", "задач"]], 3: ["🔥", ["день", "дня", "дней"]] };
+    const plural = (n, w) => w[n % 10 === 1 && n % 100 !== 11 ? 0 : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? 1 : 2];
+    const val = (k, v) => `${UNIT[k][0]} ${v}`;
+    const COLORS = ["#ff7a59", "#7c5cff", "#1cb0f6", "#2bb673", "#ff5c8a", "#f2b01e", "#00a6a6", "#8e6cff", "#ef6b3b", "#3d8bfd"];
+    function avatar(nick, cls = "") {
+      let h = 0; for (const ch of nick) h = (h * 31 + ch.codePointAt(0)) >>> 0;
+      const letter = [...nick.trim()][0] || "?";
+      return `<div class="av ${cls}" style="--avbg:${COLORS[h % COLORS.length]}">${esc(letter.toUpperCase())}</div>`;
+    }
+
+    function decode() {
+      try {
+        const d = new URLSearchParams(location.search).get("d");
+        if (!d) return null;
+        const b = atob(d.replace(/-/g, "+").replace(/_/g, "/"));
+        return JSON.parse(new TextDecoder().decode(Uint8Array.from(b, (c) => c.charCodeAt(0))));
+      } catch (e) { return null; }
+    }
+    const data = decode() || { n: 0, u: [], me: null };
+    const me = data.me;
+    const mineRow = data.u[data.i];   // ссылка на мою строку в "u" (если я в топе)
+    const isMe = (r) => r === mineRow;
+
+    if (data.t) {
+      const t = new Date(data.t * 1000);
+      $("sub").textContent = `${data.n} ${plural(data.n, ["ученик", "ученика", "учеников"])} · обновлено ${t.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}`;
+    }
+
+    function render(k) {
+      document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("on", +b.dataset.k === k));
+      const rows = data.u.slice().sort((a, b) => b[k] - a[k] || a[0].toLowerCase().localeCompare(b[0].toLowerCase()));
+      // пьедестал
+      let pod = "";
+      for (let i = 0; i < 3; i++) {
+        const r = rows[i];
+        pod += r
+          ? `<div class="pl p${i + 1}${isMe(r) ? " me" : ""}"><div class="crown">${i === 0 ? "👑" : ""}</div>${avatar(r[0])}
+               <div class="nm">${esc(r[0])}</div><div class="vl">${val(k, r[k])}</div><div class="step">${i + 1}</div></div>`
+          : `<div class="pl p${i + 1} empty"><div class="crown"></div><div class="av">?</div>
+               <div class="nm">&nbsp;</div><div class="vl">&nbsp;</div><div class="step">${i + 1}</div></div>`;
+      }
+      $("podium").innerHTML = pod;
+      // список (с 4-го места)
+      const rest = rows.slice(3, 15);
+      $("list").innerHTML = !rows.length
+        ? `<div class="empty-state"><img src="cat.png" alt="">Пока пусто — стань первым!</div>`
+        : rest.map((r, i) => `<div class="row${isMe(r) ? " me" : ""}" style="animation-delay:${i * 0.03}s">
+              <div class="pos">${i + 4}</div>${avatar(r[0])}<div class="nm">${esc(r[0])}</div><div class="vl">${val(k, r[k])}</div></div>`).join("");
+      $("list").classList.toggle("hidden", rows.length > 0 && !rest.length);
+      // моё место
+      if (me) {
+        const place = me[3 + k];
+        $("mine").innerHTML = `<div class="card"><div class="big">${place}</div>${avatar(me[0])}
+          <div class="txt"><b>${esc(me[0])}</b><small>твоё место из ${data.n}</small></div>
+          <div class="vl">${me[k]} ${plural(me[k], UNIT[k][1])}</div></div>`;
+        $("mine").classList.remove("hidden");
+      } else {
+        $("mine").innerHTML = `<div class="card"><div class="txt"><b>Тебя пока нет в таблице</b><small>Придумай ник в боте — и вперёд!</small></div></div>`;
+        $("mine").classList.remove("hidden");
+      }
+    }
+
+    let cur = 1;
+    $("tabs").addEventListener("click", (e) => {
+      const b = e.target.closest("button"); if (!b || +b.dataset.k === cur) return;
+      cur = +b.dataset.k; render(cur);
+      if (tg && tg.HapticFeedback) tg.HapticFeedback.selectionChanged();
+    });
+    render(cur);
+  </script>
+</body>
+</html>
