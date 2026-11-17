@@ -122,16 +122,12 @@ function lessonsOf(unit) {
   return list;
 }
 
-let grade = 10;
-const urlGrade = new URLSearchParams(location.search).get("grade");
-if (urlGrade === "11") grade = 11;
 
 function renderPath() {
-  document.querySelectorAll("#gradeSeg button").forEach((b) => b.classList.toggle("on", +b.dataset.grade === grade));
   $("stStreak").textContent = streakNow();
   $("stXp").textContent = P.xp;
 
-  const units = UNITS.filter((u) => u.grade === grade);
+  const units = UNITS;
   const zig = [0, 44, 66, 44, 0, -44, -66, -44];
   let html = "", open = true, k = 0, currentFound = false;
   units.forEach((u, ui) => {
@@ -182,9 +178,6 @@ function openSheet(id) {
   $("sheet").classList.remove("hidden");
 }
 $("sheet").addEventListener("click", (e) => { if (e.target.id === "sheet") $("sheet").classList.add("hidden"); });
-document.querySelectorAll("#gradeSeg button").forEach((b) => b.addEventListener("click", () => {
-  grade = +b.dataset.grade; haptic("tap"); renderPath(); window.scrollTo(0, 0);
-}));
 
 // ------------------------------------------------------------------ генерация заданий
 // Неверные варианты формулы: переворот дроби, «·» вместо «/», ловушки, другие формулы рядом
