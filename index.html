@@ -3,25 +3,23 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-  <title>Учить формулы</title>
+  <title>Повторение формул</title>
   <!-- Библиотека Telegram: даёт объект window.Telegram.WebApp -->
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <link rel="stylesheet" href="style.css?v=6">
+  <link rel="stylesheet" href="style.css?v=7">
 </head>
 <body>
-  <!-- Экран 1: путь из уроков -->
-  <section id="path" class="screen">
-    <header class="topbar">
-      <div class="brand">Физика · 10 класс</div>
-      <div class="stats">
-        <span title="Дней подряд">🔥 <b id="stStreak">0</b></span>
-        <span title="Опыт">⚡ <b id="stXp">0</b></span>
-      </div>
-    </header>
-    <div id="units" class="units"></div>
+  <!-- Экран 1: выбор формул (если приложение открыли без выбора из бота) -->
+  <section id="picker" class="screen hidden">
+    <header class="topbar"><div class="brand">🧠 Повторение формул</div></header>
+    <div class="units">
+      <p class="legend">Нажми на тему — выберешь её целиком. ▾ — отметить отдельные формулы.</p>
+      <div id="topics"></div>
+    </div>
+    <footer class="footer"><button id="startBtn" class="btn" disabled>Выбери формулы</button></footer>
   </section>
 
-  <!-- Экран 2: урок -->
+  <!-- Экран 2: повторение -->
   <section id="lesson" class="screen hidden">
     <header class="lessonbar">
       <button class="x" id="quit" aria-label="Выйти">✕</button>
@@ -34,31 +32,25 @@
     </footer>
   </section>
 
-  <!-- Экран 3: урок пройден -->
+  <!-- Экран 3: итог -->
   <section id="done" class="screen hidden">
     <div class="donebox">
       <img src="cat.png" alt="" class="cat">
-      <h1 id="doneTitle">Урок пройден!</h1>
+      <h1 id="doneTitle">Повторение окончено</h1>
       <div class="cards">
-        <div class="statcard xp"><small>ОПЫТ</small><b id="doneXp">+10</b></div>
+        <div class="statcard xp"><small>ФОРМУЛ</small><b id="doneCount">0</b></div>
         <div class="statcard acc"><small>ТОЧНОСТЬ</small><b id="doneAcc">100%</b></div>
-        <div class="statcard fire"><small>СЕРИЯ</small><b id="doneStreak">1</b></div>
       </div>
+      <div id="doneBad" class="donebad"></div>
     </div>
-    <footer class="footer"><button id="doneBtn" class="btn">Дальше</button></footer>
+    <footer class="footer donebtns">
+      <button id="againBad" class="btn red">Повторить ошибки</button>
+      <button id="againAll" class="btn">Ещё раз всё</button>
+      <button id="toPicker" class="btn ghostbtn">Выбрать другие формулы</button>
+    </footer>
   </section>
 
-  <!-- Окошко урока на пути -->
-  <div id="sheet" class="sheet hidden">
-    <div class="sheetbox">
-      <div id="sheetTitle" class="sheettitle"></div>
-      <div id="sheetText" class="sheettext"></div>
-      <button id="sheetGo" class="btn">Начать</button>
-    </div>
-  </div>
-
-  <script src="formulas.js?v=6"></script>
-  <script src="derivations.js?v=6"></script>
-  <script src="app.js?v=6"></script>
+  <script src="formulas.js?v=7"></script>
+  <script src="app.js?v=7"></script>
 </body>
 </html>

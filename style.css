@@ -208,3 +208,30 @@ h2.says { font-size: 18px; font-weight: 700; margin-bottom: 14px; }
   box-shadow: 0 10px 22px rgba(0, 0, 0, .25); border-color: var(--blue);
 }
 .brand { font-weight: 800; font-size: 16px; color: var(--accent); }
+
+/* ---------- Выбор формул ---------- */
+.sechead { margin: 22px 0 8px; font-size: 13px; font-weight: 800; letter-spacing: .5px; text-transform: uppercase; color: var(--accent); }
+.topic { display: flex; gap: 8px; margin-bottom: 8px; }
+.trow, .more, .frow {
+  border: 2px solid var(--line); background: var(--bg); border-radius: 14px; cursor: pointer;
+  box-shadow: 0 3px 0 var(--line);
+}
+.trow { flex: 1; display: flex; align-items: center; gap: 10px; padding: 12px; text-align: left; border-left: 6px solid var(--c); }
+.trow b { flex: 1; font-size: 16px; }
+.trow small { color: var(--muted); font-weight: 700; }
+.more { width: 48px; font-size: 18px; color: var(--muted); }
+.flist { display: flex; flex-direction: column; gap: 6px; margin: 0 0 12px 14px; }
+.frow { display: flex; align-items: center; gap: 10px; padding: 8px 12px; text-align: left; }
+.frow .fn { display: flex; flex-direction: column; gap: 2px; font-size: 14px; font-weight: 600; }
+.frow .f { font-size: 18px; }
+.chk { flex: none; width: 22px; height: 22px; border-radius: 7px; border: 2px solid var(--line); position: relative; }
+.chk.on { background: var(--green); border-color: var(--green); }
+.chk.on::after { content: "✓"; color: #fff; font-weight: 900; font-size: 14px; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+.chk.part { border-color: var(--green); }
+.chk.part::after { content: ""; position: absolute; left: 4px; right: 4px; top: 8px; height: 3px; border-radius: 2px; background: var(--green); }
+
+/* ---------- Итог ---------- */
+.donebad { width: 100%; max-width: 420px; margin-top: 22px; text-align: left; display: flex; flex-direction: column; gap: 8px; }
+.badf { border: 2px solid var(--red-bg); border-radius: 14px; padding: 8px 12px; }
+.donebtns { display: flex; flex-direction: column; gap: 10px; }
+.btn.ghostbtn { background: none; color: var(--muted); box-shadow: none; border: 2px solid var(--line); }
