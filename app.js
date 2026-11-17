@@ -165,13 +165,15 @@ function fromQuery() {
 
 // ------------------------------------------------------------------ экран выбора (если открыли без выбора)
 const picked = new Set();
+try { JSON.parse(localStorage.getItem("wf_pick") || "[]").forEach((id) => byId.has(id) && picked.add(id)); } catch (e) {}
 const opened = new Set();
 function renderPicker() {
   let html = "";
   Object.entries(SECTIONS).forEach(([sec, title]) => {
     const us = UNITS.filter((u) => u.id.split(".")[0] === sec);
     if (!us.length) return;
-    html += `<div class="sechead">${esc(title)}</div>`;
+    const sf = us.flatMap((u) => u.formulas), sk = sf.filter((f) => picked.has(f.id)).length;
+    html += `<button class="sechead" data-sec="${sec}"><span class="chk ${sk === sf.length ? "on" : sk ? "part" : ""}"></span>${esc(title)}<small>${sk ? `${sk}/${sf.length}` : "весь раздел"}</small></button>`;
     us.forEach((u) => {
       const k = u.formulas.filter((f) => picked.has(f.id)).length;
       const mark = k === u.formulas.length ? "on" : k ? "part" : "";
@@ -186,6 +188,12 @@ function renderPicker() {
   });
   const t = $("topics");
   t.innerHTML = html;
+  const toggle = (fs) => { const all = fs.every((f) => picked.has(f.id)); fs.forEach((f) => (all ? picked.delete(f.id) : picked.add(f.id))); };
+  t.querySelectorAll("[data-sec]").forEach((b) => b.addEventListener("click", () => {
+    haptic("tap");
+    toggle(UNITS.filter((u) => u.id.split(".")[0] === b.dataset.sec).flatMap((u) => u.formulas));
+    renderPicker();
+  }));
   t.querySelectorAll("[data-unit]").forEach((b) => b.addEventListener("click", () => {
     haptic("tap");
     const fs = unitById.get(b.dataset.unit).formulas;
@@ -203,6 +211,7 @@ function renderPicker() {
     const id = b.dataset.f; picked.has(id) ? picked.delete(id) : picked.add(id);
     renderPicker();
   }));
+  try { localStorage.setItem("wf_pick", JSON.stringify([...picked])); } catch (e) {}   // запомнить выбор
   $("startBtn").disabled = picked.size === 0;
   $("startBtn").textContent = picked.size ? `Повторить (${picked.size})` : "Выбери формулы";
 }
@@ -568,5 +577,5 @@ if (tg && tg.BackButton) tg.BackButton.onClick(quit);
 
 // ------------------------------------------------------------------ старт
 const initial = fromQuery();
-initial.forEach((f) => picked.add(f.id));
+if (initial.length) { picked.clear(); initial.forEach((f) => picked.add(f.id)); }
 if (initial.length) startSession(initial); else toPicker();
