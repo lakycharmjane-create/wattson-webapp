@@ -2,27 +2,65 @@
 <html lang="ru">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Wattson</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <title>Учить формулы</title>
   <!-- Библиотека Telegram: даёт объект window.Telegram.WebApp -->
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=3">
 </head>
 <body>
-  <main class="wrap">
-    <h1 id="hello">Привет!</h1>
-    <p class="muted">Это мини-приложение бота @WattsonEdu_Bot.</p>
+  <!-- Экран 1: путь из уроков -->
+  <section id="path" class="screen">
+    <header class="topbar">
+      <div class="seg" id="gradeSeg">
+        <button data-grade="10">10 класс</button>
+        <button data-grade="11">11 класс</button>
+      </div>
+      <div class="stats">
+        <span title="Дней подряд">🔥 <b id="stStreak">0</b></span>
+        <span title="Опыт">⚡ <b id="stXp">0</b></span>
+      </div>
+    </header>
+    <div id="units" class="units"></div>
+  </section>
 
-    <section class="card">
-      <p>Нажато раз: <b id="count">0</b></p>
-      <button id="btn" class="btn">Нажми меня</button>
-    </section>
+  <!-- Экран 2: урок -->
+  <section id="lesson" class="screen hidden">
+    <header class="lessonbar">
+      <button class="x" id="quit" aria-label="Выйти">✕</button>
+      <div class="progress"><div id="progFill"></div></div>
+    </header>
+    <main id="exercise" class="exercise"></main>
+    <footer id="footer" class="footer">
+      <div id="feedback" class="feedback"></div>
+      <button id="action" class="btn" disabled>Проверить</button>
+    </footer>
+  </section>
 
-    <p id="outside" class="muted hidden">
-      Страница открыта не в Telegram — часть функций не работает.
-    </p>
-  </main>
+  <!-- Экран 3: урок пройден -->
+  <section id="done" class="screen hidden">
+    <div class="donebox">
+      <img src="cat.png" alt="" class="cat">
+      <h1 id="doneTitle">Урок пройден!</h1>
+      <div class="cards">
+        <div class="statcard xp"><small>ОПЫТ</small><b id="doneXp">+10</b></div>
+        <div class="statcard acc"><small>ТОЧНОСТЬ</small><b id="doneAcc">100%</b></div>
+        <div class="statcard fire"><small>СЕРИЯ</small><b id="doneStreak">1</b></div>
+      </div>
+    </div>
+    <footer class="footer"><button id="doneBtn" class="btn">Дальше</button></footer>
+  </section>
 
-  <script src="app.js"></script>
+  <!-- Окошко урока на пути -->
+  <div id="sheet" class="sheet hidden">
+    <div class="sheetbox">
+      <div id="sheetTitle" class="sheettitle"></div>
+      <div id="sheetText" class="sheettext"></div>
+      <button id="sheetGo" class="btn">Начать</button>
+    </div>
+  </div>
+
+  <script src="formulas.js?v=3"></script>
+  <script src="app.js?v=3"></script>
 </body>
 </html>
