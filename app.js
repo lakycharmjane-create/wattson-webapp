@@ -2,7 +2,8 @@
 // В боте ученик выбирает раздел физики и, если нужно, точечно темы/формулы; бот открывает приложение
 // с адресом ?r=1.1,dyn1,dyn3 (id темы = вся тема, иначе id формулы) — и сразу начинается повторение.
 // Если открыть без выбора (/app), показывается экран выбора прямо в приложении.
-// Задания: собери формулу (плитки в числитель/знаменатель), выбери верную формулу, узнай формулу, найди пары.
+// Задания: напиши формулу сам (с клавиатуры; у дроби черта уже нарисована), впиши пропущенную часть,
+// собери из плиток (в числитель/знаменатель), выбери верную из похожих.
 // Ошибки возвращаются в конец; в итоге — список формул с ошибками и кнопка «Повторить ошибки».
 
 const tg = window.Telegram ? window.Telegram.WebApp : null;
@@ -27,24 +28,31 @@ function haptic(kind) {
   else tg.HapticFeedback.notificationOccurred(kind);
 }
 
-// Одна плитка → HTML: «~» — пробел, _xxx — индекс, ^(xxx) — степень, «3/2», «1/R₁» — маленькая дробь
+// Одна плитка → HTML: «~» — пробел, _xxx — индекс, ^(xxx) — степень.
+// Дробь внутри плитки («3/2», «1/R₁», «at²/2») рисуется с чертой, корень √(m/k) — знаком корня с дробью под ним.
 function tokHTML(t) {
-  const m = /^(\d+)\/([^\s/]+)$/.exec(t);
-  if (m) return `<span class="frac sm"><span>${m[1]}</span><span>${tokHTML(m[2])}</span></span>`;
+  const q = t.indexOf("√(");
+  if (q >= 0 && t.endsWith(")")) {
+    return (q ? tokHTML(t.slice(0, q)) : "") +
+      `<span class="sqrt"><span class="rs">√</span><span class="rad">${tokHTML(t.slice(q + 2, -1))}</span></span>`;
+  }
+  const m = /^([^/()]+)\/([^/()]+)$/.exec(t);
+  if (m) return `<span class="frac sm"><span>${tokHTML(m[1])}</span><span>${tokHTML(m[2])}</span></span>`;
   return esc(t.replace(/~/g, " "))
     .replace(/\^\(([^)]*)\)/g, "<sup>$1</sup>")
     .replace(/_([^\s·/+−()^<]+)/g, "<sub>$1</sub>");
 }
 const strip = (t) => (/^\(.*\)$/.test(t) ? t.slice(1, -1) : t);
-// Выражение: если в нём ровно одна «/», рисуем настоящую дробь (всё после «/» — знаменатель)
-function exprHTML(tokens) {
+// Выражение: если в нём ровно одна «/», рисуем настоящую дробь (всё после «/» — знаменатель).
+// render(t, i) — как нарисовать плитку номер i (для заданий «впиши пропущенное» вместо плитки ставится поле ввода).
+function exprHTML(tokens, render = (t) => tokHTML(t)) {
   const slashes = tokens.filter((t) => t === "/").length;
   if (slashes === 1) {
     const i = tokens.indexOf("/");
-    const side = (p) => (p.length === 1 ? tokHTML(strip(p[0])) : p.map(tokHTML).join(" "));
-    return `<span class="frac"><span>${side(tokens.slice(0, i))}</span><span>${side(tokens.slice(i + 1))}</span></span>`;
+    const side = (p, off) => (p.length === 1 ? render(strip(p[0]), off) : p.map((t, j) => render(t, off + j)).join(" "));
+    return `<span class="frac"><span>${side(tokens.slice(0, i), 0)}</span><span>${side(tokens.slice(i + 1), i + 1)}</span></span>`;
   }
-  return tokens.map(tokHTML).join(" ");
+  return tokens.map((t, i) => render(t, i)).join(" ");
 }
 const formulaHTML = (f, cls = "", rhs = toks(f.rhs)) =>
   `<span class="f ${cls}"><span class="fl">${exprHTML(toks(f.lhs))}</span><span>=</span>${exprHTML(rhs)}</span>`;
@@ -69,6 +77,71 @@ function cform(tokens) {
   const i = tokens.indexOf("/");
   if (i >= 0 && tokens.lastIndexOf("/") !== i) return "?" + tokens.join(" ");
   return i < 0 ? sideKey(tokens) + "|" : sideKey(tokens.slice(0, i)) + "|" + sideKey(tokens.slice(i + 1));
+}
+
+// ------------------------------------------------------------------ проверка введённого с клавиатуры
+// Ученик пишет как удобно: v0 = v₀, v2 или v^2 = v², знак умножения не нужен, порядок множителей
+// и слагаемых не важен, русская «Р» = латинская «P», ℰ можно писать как E. Важно, что в числителе, а что в знаменателе.
+const SUBS = "₀₁₂₃₄₅₆₇₈₉";
+const MAP = { "²": "2", "³": "3", "ℰ": "E", "А": "A", "В": "B", "Е": "E", "К": "K", "М": "M", "Н": "H", "О": "O",
+  "Р": "P", "С": "C", "Т": "T", "Х": "X", "а": "a", "е": "e", "о": "o", "р": "p", "с": "c", "х": "x", "у": "y" };
+function norm(s) {
+  // пробел, «·» и «*» — граница между множителями (k·3/2: «3» — не индекс k)
+  s = s.replace(/sqrt|корень/gi, "√").replace(/[−–—]/g, "-").replace(/[~^_]/g, "").replace(/[\s·*×]+/g, "|");
+  return [...s].map((c) => { const i = SUBS.indexOf(c); return i >= 0 ? String(i) : MAP[c] || c; }).join("");
+}
+function stripOuter(s) {
+  while (s[0] === "(") {
+    let d = 0, end = -1;
+    for (let j = 0; j < s.length; j++) { if (s[j] === "(") d++; else if (s[j] === ")" && --d === 0) { end = j; break; } }
+    if (end !== s.length - 1) break;
+    s = s.slice(1, -1);
+  }
+  return s;
+}
+function sumKey(s) {             // сумма: слагаемые в любом порядке
+  s = stripOuter(s);
+  const terms = []; let d = 0, cur = "", sign = "+";
+  for (const c of s) {
+    if (c === "(") d++; else if (c === ")") d--;
+    if (d === 0 && (c === "+" || c === "-")) { if (cur) terms.push(sign + termKey(cur)); sign = c; cur = ""; continue; }
+    cur += c;
+  }
+  if (cur) terms.push(sign + termKey(cur));
+  return terms.sort().join(" ");
+}
+function termKey(t) {            // произведение: множители в любом порядке; после «/» — в знаменатель
+  const num = [], den = [];
+  let i = 0;
+  const atom = (long) => {
+    const c = t[i];
+    if (c === "(") {
+      let d = 0, j = i;
+      for (; j < t.length; j++) { if (t[j] === "(") d++; else if (t[j] === ")" && --d === 0) break; }
+      const a = "(" + sumKey(t.slice(i + 1, j)) + ")"; i = j + 1; return a;
+    }
+    if (c === "√") { i++; return "√" + (i < t.length ? atom(true) : ""); }
+    // буква вместе с цифрами за ней — одно целое (v0 = v₀, C2 = C²); цифры перед буквой — коэффициент (2C)
+    let a = t[i++];
+    while (i < t.length && /\d/.test(t[i])) a += t[i++];
+    return a;
+  };
+  while (i < t.length) {
+    if (t[i] === "|") { i++; continue; }
+    if (t[i] === "/") { i++; while (t[i] === "|") i++; if (i < t.length) den.push(atom(true)); continue; }
+    const a = atom(false);
+    if (!(a === "1" && t[i] === "/")) num.push(a);    // 1/3·… — единицу в числителе не считаем
+  }
+  return num.sort().join(",") + "/" + den.sort().join(",");
+}
+const ansKey = (s) => sumKey(norm(s));
+const tokStr = (ts) => ts.filter((t) => t !== "·").join(" ");
+// Спецсимволы, которых нет на обычной клавиатуре: кнопки под полем ввода
+const SPECIAL = "πρμωνλφηεαΔ√";
+function keysFor(answer) {
+  const need = [...new Set([...answer].filter((c) => SPECIAL.includes(c) || c === "ℰ"))];
+  const extra = shuffle([...SPECIAL].filter((c) => !need.includes(c))).slice(0, Math.max(2, 5 - need.length));
+  return shuffle([...need, ...extra]);
 }
 
 // ------------------------------------------------------------------ данные
@@ -158,49 +231,58 @@ function wrongVariants(f, siblings) {
     });
     if (best >= 0) { const c = r.slice(); c[best] = t; out.push(c); }
   }
-  for (const g of shuffle(siblings)) if (g !== f && g.lhs === f.lhs) out.push(toks(g.rhs));
-  for (const g of shuffle(siblings)) if (g !== f) out.push(toks(g.rhs));
+  // Другие формулы темы годятся в неверные варианты, только если они про ДРУГУЮ величину:
+  // иначе «v = 2πR/T» оказалась бы «неверной» для скорости, хотя это тоже правильная формула скорости.
+  for (const g of shuffle(siblings)) if (rival(f, g)) out.push(toks(g.rhs));
   const seen = new Set([cform(r)]), res = [];
   for (const v of out) { const c = cform(v); if (!seen.has(c)) { seen.add(c); res.push(v); } }
   return res;
 }
+// Буква величины слева от «=» (без Δ и индексов): F_тр → F, a_цс → a
+const qty = (f) => f.lhs.replace(/^Δ/, "")[0];
+const rival = (f, g) => g !== f && qty(g) !== qty(f);
 
 function exChoice(f) {
   const opts = shuffle([{ rhs: toks(f.rhs), ok: true }, ...wrongVariants(f, f.unit.formulas).slice(0, 3).map((rhs) => ({ rhs, ok: false }))]);
   return { t: "choice", f, opts };
 }
-function exName(f) {
-  const others = shuffle(f.unit.formulas.filter((g) => g !== f && g.name !== f.name)).slice(0, 3);
-  return { t: "name", f, opts: shuffle([f, ...others]) };
-}
-// Плитки для сборки: части формулы без «·» и «/» (черта дроби уже нарисована) + лишние плитки-ловушки
+// Плитки для сборки: части формулы без «·» и «/» (черта дроби уже нарисована) + лишние плитки-ловушки.
+// Лишние плитки берём только из формул про другие величины — чтобы из них нельзя было собрать
+// другую ВЕРНУЮ формулу той же величины (P = I²R вместо P = UI) и получить «неправильно».
 function exBuild(f) {
   const r = toks(f.rhs).filter((t) => t !== "·" && t !== "/");
   const extra = [];
   for (const t of f.trap || []) if (t !== "·" && t !== "/" && !extra.includes(t) && (!r.includes(t) || t === "+" || t === "−")) extra.push(t);
   const want = Math.max(2, Math.min(4, 8 - r.length));
-  const others = shuffle(f.unit.formulas.filter((g) => g !== f).flatMap((g) => toks(g.rhs)))
+  const others = shuffle(f.unit.formulas.filter((g) => rival(f, g)).flatMap((g) => toks(g.rhs)))
     .filter((t) => !OPS.has(t) && !r.includes(t));
   for (const t of others) { if (extra.length >= want) break; if (!extra.includes(t)) extra.push(t); }
   return { t: "build", f, pool: shuffle([...r, ...extra.slice(0, Math.max(want, 2))]) };
 }
-function exPairs(fs) {
-  return { t: "pairs", fs: shuffle(fs).slice(0, 4) };
+// Впиши пропущенное: одна часть формулы заменена полем ввода
+function exBlank(f) {
+  const l = toks(f.lhs), r = toks(f.rhs);
+  const ok = (t) => !OPS.has(t) && !/^\d+$/.test(t);
+  if (l.length === 1 && Math.random() < 0.2) return { t: "blank", f, side: "l", bi: 0, ans: l[0] };
+  const idx = r.map((t, i) => (ok(t) ? i : -1)).filter((i) => i >= 0);
+  const bi = pick(idx);
+  return { t: "blank", f, side: "r", bi, ans: r[bi] };
+}
+// Напиши формулу целиком: если в ней дробь — черта уже нарисована, пишешь числитель и знаменатель
+function exType(f) {
+  const r = toks(f.rhs);
+  const i = r.indexOf("/");
+  const frac = i > 0 && r.lastIndexOf("/") === i;
+  return { t: "type", f, frac, num: tokStr(frac ? r.slice(0, i) : r), den: frac ? tokStr(r.slice(i + 1)) : "" };
 }
 
-// Каждая формула — одно задание (чаще всего «собери»), после каждых 4 формул — «найди пары» по ним
+// Каждая формула — одно задание: чаще всего ученик пишет сам (целиком или пропущенную часть),
+// иногда собирает из плиток или выбирает из похожих (с ловушками)
 function buildSession(fs) {
-  const ex = [];
-  const list = shuffle(fs);
-  for (let i = 0; i < list.length; i += 4) {
-    const chunk = list.slice(i, i + 4);
-    chunk.forEach((f) => {
-      const r = Math.random();
-      ex.push(r < 0.6 ? exBuild(f) : r < 0.85 ? exChoice(f) : exName(f));
-    });
-    if (chunk.length >= 3) ex.push(exPairs(chunk));
-  }
-  return ex;
+  return shuffle(fs).map((f) => {
+    const x = Math.random();
+    return x < 0.4 ? exType(f) : x < 0.65 ? exBlank(f) : x < 0.9 ? exBuild(f) : exChoice(f);
+  });
 }
 
 // ------------------------------------------------------------------ сессия повторения
@@ -240,17 +322,10 @@ function renderExercise() {
   const box = $("exercise");
   L.answer = null;
 
-  if (e.t === "choice" || e.t === "name") {
-    let title, opts;
-    if (e.t === "choice") {
-      title = `Какая формула верная?<br><span class="legend">${esc(e.f.name)}</span>`;
-      opts = e.opts.map((o) => formulaHTML(e.f, "", o.rhs));
-    } else {
-      title = `Что это за формула?<div style="margin-top:12px">${formulaHTML(e.f, "big")}</div>`;
-      opts = e.opts.map((g) => esc(g.name));
-    }
-    box.innerHTML = `<div class="kicker">${esc(e.f.unit.title)}</div><h2 class="task">${title}</h2>
-      <div class="options">${opts.map((h, i) => `<button class="opt" data-i="${i}">${h}</button>`).join("")}</div>`;
+  if (e.t === "choice") {
+    box.innerHTML = `<div class="kicker">Выбери ответ · ${esc(e.f.unit.title)}</div>
+      <h2 class="task">Какая формула верная?<br><span class="legend">${esc(e.f.name)}</span></h2>
+      <div class="options">${e.opts.map((o, i) => `<button class="opt" data-i="${i}">${formulaHTML(e.f, "", o.rhs)}</button>`).join("")}</div>`;
     box.querySelectorAll(".opt").forEach((b) => b.addEventListener("click", () => {
       if (L.locked) return;
       haptic("tap");
@@ -263,39 +338,62 @@ function renderExercise() {
   }
 
   if (e.t === "build") { renderBuild(e, box); return; }
+  if (e.t === "type" || e.t === "blank") renderTyping(e, box);
+}
 
-  if (e.t === "pairs") {
-    const left = shuffle(e.fs), right = shuffle(e.fs);
-    box.innerHTML = `<div class="kicker">Найди пары</div><h2 class="task">Соедини название и формулу</h2>
-      <div class="pairs">${left.map((f, i) => `
-        <button class="opt" data-side="L" data-id="${f.id}">${esc(f.name)}</button>
-        <button class="opt" data-side="R" data-id="${right[i].id}">${formulaHTML(right[i])}</button>`).join("")}</div>`;
-    let sel = null, left_ = e.fs.length, errors = 0;
-    box.querySelectorAll(".pairs .opt").forEach((b) => b.addEventListener("click", () => {
-      if (b.classList.contains("gone")) return;
-      haptic("tap");
-      if (!sel || sel.dataset.side === b.dataset.side) {
-        if (sel) sel.classList.remove("sel");
-        sel = b; b.classList.add("sel"); return;
-      }
-      const a = sel; sel = null; a.classList.remove("sel");
-      if (a.dataset.id === b.dataset.id) {
-        [a, b].forEach((x) => x.classList.add("ok"));
-        setTimeout(() => [a, b].forEach((x) => { x.classList.remove("ok"); x.classList.add("gone"); }), 350);
-        if (--left_ === 0) {
-          if (errors) L.mistakes += 1;
-          L.answered += 1;
-          haptic("success");
-          showResult(true, errors ? "Все пары найдены!" : "Отлично!");
-        }
-      } else {
-        errors += 1; haptic("error");
-        [a, b].forEach((x) => x.classList.add("bad"));
-        setTimeout(() => [a, b].forEach((x) => x.classList.remove("bad")), 450);
-      }
-    }));
-    setAction("Проверить", false, null);
+// ------------------------------------------------------------------ ученик пишет сам
+// «Напиши формулу»: слева от «=» величина, справа поле (а если формула — дробь, то два поля: над чертой и под ней).
+// «Впиши пропущенное»: формула целиком, одна её часть — поле ввода.
+// Под полем — кнопки с буквами, которых нет на клавиатуре (ρ, μ, π, Δ, √ …): нужные + несколько лишних.
+function renderTyping(e, box) {
+  const inp = (id) => `<input id="${id}" class="tin" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="done">`;
+  let kicker, body, answer;
+  if (e.t === "type") {
+    kicker = "Напиши формулу";
+    body = `<div class="eqbuild">
+      <span class="f lhs"><span>${exprHTML(toks(e.f.lhs))}</span><span>=</span></span>
+      <div class="fracbox">${inp("tNum")}${e.frac ? `<div class="fbar"></div>${inp("tDen")}` : ""}</div></div>`;
+    answer = e.num + e.den;
+  } else {
+    kicker = "Впиши пропущенное";
+    const render = (side) => (t, i) => (side === e.side && i === e.bi ? inp("tNum") : tokHTML(t));
+    body = `<div class="blankf"><span class="f">${exprHTML(toks(e.f.lhs), render("l"))}<span>=</span>${exprHTML(toks(e.f.rhs), render("r"))}</span></div>`;
+    answer = e.ans;
   }
+  box.innerHTML = `<div class="kicker">${kicker} · ${esc(e.f.unit.title)}</div><h2 class="task">${esc(e.f.name)}</h2>${body}
+    <div class="keys">${keysFor(answer).map((c) => `<button class="key" data-k="${c}">${c}</button>`).join("")}</div>
+    <div class="legend hint">Индексы и степени — обычными цифрами: <b>v0</b> = v₀, <b>v2</b> = v². Знак умножения можно не ставить. Корень — кнопка √.</div>`;
+
+  const inputs = [...box.querySelectorAll(".tin")];
+  let last = inputs[0];
+  const update = () => setAction("Проверить", !L.locked && inputs.every((x) => x.value.trim()), check);
+  inputs.forEach((x, k) => {
+    x.addEventListener("focus", () => { last = x; });
+    x.addEventListener("input", update);
+    x.addEventListener("keydown", (ev) => {
+      if (ev.key !== "Enter") return;
+      ev.preventDefault();
+      if (L.locked) { $("action").click(); return; }
+      if (inputs[k + 1] && !inputs[k + 1].value) inputs[k + 1].focus();
+      else if (!$("action").disabled) $("action").click();
+    });
+  });
+  box.querySelectorAll(".key").forEach((b) => {
+    b.addEventListener("pointerdown", (ev) => ev.preventDefault());   // не убирать фокус из поля
+    b.addEventListener("click", () => {
+      if (L.locked) return;
+      haptic("tap");
+      const x = last, c = b.dataset.k, ins = c === "√" ? "√()" : c;
+      const st = x.selectionStart ?? x.value.length, en = x.selectionEnd ?? x.value.length;
+      x.value = x.value.slice(0, st) + ins + x.value.slice(en);
+      const pos = st + (c === "√" ? 2 : ins.length);
+      x.focus(); x.setSelectionRange(pos, pos);
+      update();
+    });
+  });
+  L.readTyped = () => inputs.map((x) => x.value);
+  update();
+  setTimeout(() => inputs[0].focus(), 50);
 }
 
 // ------------------------------------------------------------------ сборка формулы: перетаскивание плиток
@@ -400,12 +498,17 @@ function check() {
   const e = L.queue[L.pos];
   let ok;
   if (e.t === "choice") ok = e.opts[L.answer].ok;
-  else if (e.t === "name") ok = e.opts[L.answer] === e.f;
   else if (e.t === "build") {
     ok = cform(L.readBuild()) === cform(toks(e.f.rhs));
     $("exercise").querySelectorAll(".zone").forEach((z) => z.classList.add("lockedz"));
+  } else if (e.t === "type" || e.t === "blank") {
+    const v = L.readTyped();
+    ok = e.t === "type"
+      ? ansKey(v[0]) === ansKey(e.num) && ansKey(v[1] || "") === ansKey(e.den)
+      : ansKey(v[0]) === ansKey(e.ans);
+    $("exercise").querySelectorAll(".tin").forEach((x) => { x.readOnly = true; x.blur(); x.classList.add(ok ? "good" : "bad"); });
   }
-  const correctHTML = e.t === "name" ? `<b>${esc(e.f.name)}</b>` : formulaHTML(e.f);
+  const correctHTML = formulaHTML(e.f);
   L.answered += 1;
   if (ok) haptic("success");
   else {
@@ -419,7 +522,7 @@ function check() {
   }
   const praise = pick(["Отлично!", "Верно!", "Так держать!", "Супер!", "Мяу, правильно!"]);
   const legend = e.f.legend ? `<div class="legend">${tokHTML(e.f.legend)}</div>` : "";
-  showResult(ok, ok ? praise : "Правильный ответ:", ok ? (e.t === "name" ? "" : legend) : correctHTML + legend);
+  showResult(ok, ok ? praise : "Правильный ответ:", ok ? legend : correctHTML + legend);
 }
 
 function showResult(ok, title, extra = "") {

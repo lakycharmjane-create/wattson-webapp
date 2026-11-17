@@ -235,3 +235,28 @@ h2.says { font-size: 18px; font-weight: 700; margin-bottom: 14px; }
 .badf { border: 2px solid var(--red-bg); border-radius: 14px; padding: 8px 12px; }
 .donebtns { display: flex; flex-direction: column; gap: 10px; }
 .btn.ghostbtn { background: none; color: var(--muted); box-shadow: none; border: 2px solid var(--line); }
+
+/* ---------- Корень с чертой ---------- */
+.sqrt { display: inline-flex; align-items: stretch; }
+.sqrt .rs { font-size: 1.15em; line-height: 1; align-self: center; }
+.sqrt .rad { display: inline-flex; align-items: center; border-top: 2px solid currentColor; padding: 2px .12em 0; margin-left: -.04em; }
+
+/* ---------- Ввод с клавиатуры ---------- */
+.tin {
+  font-family: "Cambria Math", "Times New Roman", Georgia, serif; font-size: 22px; text-align: center;
+  width: 100%; min-height: 50px; padding: 6px 10px; border-radius: 14px; outline: none;
+  border: 2px dashed var(--blue); background: var(--bg); color: var(--text); user-select: text;
+}
+.tin:focus { border-style: solid; background: rgba(28, 176, 246, .08); }
+.tin.good { border: 2px solid var(--green); background: var(--green-bg); }
+.tin.bad { border: 2px solid var(--red); background: var(--red-bg); }
+.blankf { margin: 4px 0 22px; }
+.blankf .f { font-size: 26px; }
+.blankf .tin { width: 4.2em; min-height: 44px; font-size: 20px; padding: 4px 6px; }
+.keys { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-bottom: 12px; }
+.key {
+  font-family: "Cambria Math", "Times New Roman", Georgia, serif; font-size: 22px; min-width: 46px; padding: 7px 10px;
+  border-radius: 12px; border: 2px solid var(--line); background: var(--bg); box-shadow: 0 3px 0 var(--line); cursor: pointer;
+}
+.key:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--line); }
+.hint { font-size: 13px; text-align: center; }
