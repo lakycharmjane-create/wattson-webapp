@@ -424,37 +424,38 @@ function renderExercise() {
 }
 
 // ------------------------------------------------------------------ сборка формулы: перетаскивание плиток
-// Справа от «=» уже нарисована дробь: плитки кладутся в числитель или знаменатель.
-// Если дроби в формуле нет — знаменатель оставляют пустым.
+// Если в формуле есть дробь, справа от «=» уже нарисована черта: плитки кладутся в числитель или знаменатель.
+// Если дроби нет — одно поле.
 // Плитку можно перетащить пальцем/мышкой или просто нажать: из запаса она прыгает в выбранное место
 // (числитель или знаменатель — что подсвечено), а нажатие по поставленной плитке возвращает её в запас.
 function renderBuild(e, box) {
   const ctx = e.ctx;
+  const isFrac = toks(e.f.rhs).includes("/");
   const kicker = ctx ? `Выведи сам · шаг ${ctx.k + 1} из ${ctx.d.steps.length}` : "Собери формулу";
   const head = ctx ? `${knownHTML(ctx.d, ctx.k)}<h2 class="task says">${tokHTML(e.f.name)}</h2>` : `<h2 class="task">${esc(e.f.name)}</h2>`;
   box.innerHTML = `<div class="kicker">${kicker}</div>${head}
     <div class="eqbuild">
       <span class="f lhs"><span>${exprHTML(toks(e.f.lhs))}</span><span>=</span></span>
       <div class="fracbox">
-        <div class="zone znum act" id="zNum" data-ph="перетащи сюда"></div>
+        <div class="zone znum act" id="zNum"></div>${isFrac ? `
         <div class="fbar"></div>
-        <div class="zone zden" id="zDen" data-ph="знаменатель — пусто, если дроби нет"></div>
+        <div class="zone zden" id="zDen"></div>` : ""}
       </div>
     </div>
     <div class="zone pool" id="pool">${e.pool.map((t, i) => `<button class="tile" data-i="${i}">${tokHTML(t)}</button>`).join("")}</div>`;
 
-  const zNum = $("zNum"), zDen = $("zDen"), pool = $("pool");
+  const zNum = $("zNum"), zDen = isFrac ? $("zDen") : null, pool = $("pool");
   let active = zNum;
-  const setActive = (z) => { active = z; zNum.classList.toggle("act", z === zNum); zDen.classList.toggle("act", z === zDen); };
+  const setActive = (z) => { active = z; zNum.classList.toggle("act", z === zNum); if (zDen) zDen.classList.toggle("act", z === zDen); };
   const update = () => setAction("Проверить", zNum.children.length > 0 && !L.locked, check);
   const backToPool = (tile) => {   // вернуть на своё место в запасе
     const i = +tile.dataset.i;
     const after = [...pool.children].find((c) => +c.dataset.i > i);
     pool.insertBefore(tile, after || null);
   };
-  [zNum, zDen].forEach((z) => z.addEventListener("click", (ev) => { if (ev.target === z) { haptic("tap"); setActive(z); } }));
+  [zNum, zDen].filter(Boolean).forEach((z) => z.addEventListener("click", (ev) => { if (ev.target === z) { haptic("tap"); setActive(z); } }));
 
-  const zones = [zDen, zNum, pool];
+  const zones = [zDen, zNum, pool].filter(Boolean);
   const zoneAt = (x, y) => {
     for (const z of zones) {
       const r = z.getBoundingClientRect();
@@ -518,7 +519,7 @@ function renderBuild(e, box) {
   });
   L.readBuild = () => {
     const get = (z) => [...z.children].map((c) => e.pool[+c.dataset.i]);
-    const num = get(zNum), den = get(zDen);
+    const num = get(zNum), den = zDen ? get(zDen) : [];
     return den.length ? [...num, "/", ...den] : num;
   };
   update();

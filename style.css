@@ -198,7 +198,6 @@ h2.says { font-size: 18px; font-weight: 700; margin-bottom: 14px; }
 }
 .znum.act, .zden.act { border-color: var(--blue); }
 .zone.over { background: rgba(28, 176, 246, .14); border-color: var(--blue); }
-.znum:empty::before, .zden:empty::before { content: attr(data-ph); color: var(--muted); font-size: 13px; text-align: center; pointer-events: none; }
 .zone.lockedz { border-style: solid; border-color: transparent; }
 .zone.lockedz .tile { pointer-events: none; }
 .pool { min-height: 64px; border-radius: 14px; padding: 6px; }
