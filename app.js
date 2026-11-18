@@ -297,17 +297,27 @@ function startSession(fs) {
   renderExercise();
 }
 
+// «Что уже есть» над заданием вывода: прошлые формулы (последняя крупно и в рамке) и найденные факты
+function histHTML(e) {
+  if (!e.hist || !e.hist.length) return "";
+  const one = (h, last) => `<div class="hitem${last ? " last" : ""}">${h.fact
+    ? `<span class="hfact">✔ ${txtHTML(h.fact)}</span>` : formulaHTML(h, last ? "" : "small")}</div>`;
+  const lastI = e.hist.length - 1;
+  return `<div class="hist"><div class="hlabel">Прошлые шаги — они у тебя перед глазами</div>${e.hist.map((h, i) => one(h, i === lastI)).join("")}</div>`;
+}
+
 // Вывод формулы: шаги по порядку — «собери» очередную формулу или ответь на вопрос. Ошибка → шаг повторится в конце.
 function startDerivation(d) {
   haptic("tap");
   const unit = { title: "Вывод: " + d.name, formulas: [] };
-  const fs = [], queue = [];
+  const fs = [], queue = [], known = [];
   d.steps.forEach((st, i) => {
     const f = { id: `${d.id}${i}`, name: st.s, nameHTML: txtHTML(st.s), lhs: st.l || "", rhs: st.r || "", trap: st.trap || [],
       legend: st.why || "", legendHTML: st.why ? txtHTML(st.why) : "", unit };
     fs.push(f);
-    if (st.q) queue.push({ t: "dq", f, q: st.q, given: d.given, opts: shuffle(st.o.map((text, k) => ({ text, ok: k === 0 }))) });
-    else queue.push({ ...exBuild(f), given: d.given });
+    const hist = known.slice(-4);
+    if (st.q) { queue.push({ t: "dq", f, q: st.q, given: d.given, hist, opts: shuffle(st.o.map((text, k) => ({ text, ok: k === 0 }))) }); known.push({ fact: st.o[0] }); }
+    else { queue.push({ ...exBuild(f), given: d.given, hist }); known.push({ lhs: f.lhs, rhs: f.rhs }); }
   });
   L = { fs, queue, pos: 0, mistakes: 0, answered: 0, retried: new Set(), bad: new Set(), deriv: d };
   show("lesson");
@@ -362,7 +372,7 @@ function renderExercise() {
 
   if (e.t === "dq") {
     box.innerHTML = `<div class="kicker">${esc(e.f.unit.title)}</div>${e.given ? `<div class="legend">${txtHTML(e.given)}</div>` : ""}
-      <h2 class="task">${e.f.nameHTML}<br><b>${txtHTML(e.q)}</b></h2>
+      ${histHTML(e)}<h2 class="task">${e.f.nameHTML}<br><b>${txtHTML(e.q)}</b></h2>
       <div class="options">${e.opts.map((o, i) => `<button class="opt" data-i="${i}">${txtHTML(o.text)}</button>`).join("")}</div>`;
     box.querySelectorAll(".opt").forEach((b) => b.addEventListener("click", () => {
       if (L.locked) return;
@@ -417,7 +427,7 @@ function renderExercise() {
 // (что подсвечено), а нажатие по поставленной плитке возвращает её в запас. Корень двигают за его знак.
 function renderBuild(e, box) {
   const isFrac = toks(e.f.rhs).includes("/");
-  box.innerHTML = `<div class="kicker">Собери формулу · ${esc(e.f.unit.title)}</div>${e.given ? `<div class="legend">${txtHTML(e.given)}</div>` : ""}<h2 class="task">${e.f.nameHTML || esc(e.f.name)}</h2>
+  box.innerHTML = `<div class="kicker">Собери формулу · ${esc(e.f.unit.title)}</div>${e.given ? `<div class="legend">${txtHTML(e.given)}</div>` : ""}${histHTML(e)}<h2 class="task">${e.f.nameHTML || esc(e.f.name)}</h2>
     <div class="eqbuild" id="eq">
       <span class="f lhs"><span>${exprHTML(toks(e.f.lhs))}</span><span>=</span></span>
       <div class="fracbox">

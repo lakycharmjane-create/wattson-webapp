@@ -263,3 +263,10 @@ h2.says { font-size: 18px; font-weight: 700; margin-bottom: 14px; }
 .tabs { position: sticky; top: 45px; z-index: 4; display: flex; gap: 8px; padding: 8px 16px; background: var(--bg); border-bottom: 2px solid var(--line); max-width: 520px; width: 100%; box-sizing: border-box; margin: 0 auto; }
 .tabs button { flex: 1; padding: 10px 6px; border-radius: 12px; border: 2px solid var(--line); background: none; color: var(--muted); font: inherit; font-weight: 800; font-size: 15px; cursor: pointer; }
 .tabs button.on { border-color: var(--blue); color: var(--blue); background: rgba(28, 176, 246, .12); box-shadow: 0 3px 0 var(--blue); }
+
+/* ---------- Вывод: «что уже есть» ---------- */
+.hist { margin: 10px 0 14px; padding: 10px 12px; border-radius: 14px; background: rgba(28, 176, 246, .08); border: 2px dashed rgba(28, 176, 246, .45); }
+.hlabel { font-size: 12px; font-weight: 800; letter-spacing: .4px; text-transform: uppercase; color: var(--blue); margin-bottom: 6px; }
+.hitem { margin: 6px 0; color: var(--muted); overflow-x: auto; }
+.hitem.last { color: var(--text); background: var(--bg); border: 2px solid var(--blue); border-radius: 12px; padding: 8px 10px; box-shadow: 0 3px 0 var(--blue); }
+.hfact { font-size: 15px; font-weight: 700; }
