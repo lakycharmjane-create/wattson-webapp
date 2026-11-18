@@ -596,7 +596,7 @@ function renderTasks() {
   const base = tsec === "__variant" ? variant.map((c) => byCode.get(c)).filter(Boolean) : TASKS;
   const list = base.filter((t) => (tsec === "__variant" || !tsec || t.s === tsec) && (!q || t.c.toLowerCase().includes(q) || t.t.toLowerCase().includes(q) || (t.k || "").toLowerCase().includes(q)));
   $("tcount").textContent = `${list.length} из ${TASKS.length}`;
-  $("tlist").innerHTML = list.slice(0, 150).map((t) => `<div class="ti ${solved.has(t.c) ? "done" : ""}" data-c="${t.c}"><b>${tsec === "__variant" ? (base.indexOf(t) + 1) + ". " : ""}${t.c}${solved.has(t.c) ? " ✅" : ""}</b>${t.t.replace(/</g, "&lt;")}<small>${(t.k || t.s || "").replace(/</g, "&lt;")}</small></div>`).join("") || "<div class='ti'>Ничего не найдено</div>";
+  $("tlist").innerHTML = list.slice(0, 150).map((t) => `<div class="ti ${solved.has(t.c) ? "done" : ""}" data-c="${t.c}"><b>${tsec === "__variant" ? (base.indexOf(t) + 1) + ". " : ""}${t.c}${solved.has(t.c) ? " ✅" : ""}${t.v === -1 ? " ⚠️" : ""}</b>${t.t.replace(/</g, "&lt;")}<small>${(t.k || t.s || "").replace(/</g, "&lt;")}</small></div>`).join("") || "<div class='ti'>Ничего не найдено</div>";
   $("tlist").querySelectorAll(".ti[data-c]").forEach((d) => d.addEventListener("click", () => loadCode(d.dataset.c)));
 }
 async function toggleTasks(on) {
@@ -621,7 +621,7 @@ try { Object.assign(vq, JSON.parse(localStorage.getItem("wf_vq") || "{}")); } ca
 function vSum() { const n = [...document.querySelectorAll("#vrows input")].reduce((s, i) => s + (+i.value || 0), 0); $("vsum").textContent = `Всего: ${n}`; return n; }
 function openVForm() {
   if (!TASKS) return;
-  const have = {}; TASKS.forEach((t) => { have[t.s] = (have[t.s] || 0) + 1; });
+  const have = {}; TASKS.filter((t) => t.v !== -1).forEach((t) => { have[t.s] = (have[t.s] || 0) + 1; });
   $("vrows").innerHTML = Object.keys(have).sort((x, y) => (DEFAULT_Q[y] ? 1 : 0) - (DEFAULT_Q[x] ? 1 : 0)).map((s) =>
     `<div class="vr"><span>${s} <small>(есть ${have[s]})</small></span><input type="number" min="0" max="${have[s]}" value="${Math.min(vq[s] || 0, have[s])}" data-s="${s}"></div>`).join("");
   $("vrows").querySelectorAll("input").forEach((i) => i.addEventListener("input", vSum));
@@ -635,7 +635,7 @@ $("vgo").onclick = () => {
   const codes = []; vq = {};
   document.querySelectorAll("#vrows input").forEach((i) => {
     const n = Math.max(0, Math.min(+i.value || 0, +i.max)); vq[i.dataset.s] = n;
-    codes.push(...TASKS.filter((t) => t.s === i.dataset.s).sort(() => Math.random() - 0.5).slice(0, n).map((t) => t.c));
+    codes.push(...TASKS.filter((t) => t.s === i.dataset.s && t.v !== -1).sort(() => Math.random() - 0.5).slice(0, n).map((t) => t.c));
   });
   if (!codes.length) { toast("Выбери хотя бы одну задачу"); return; }
   try { localStorage.setItem("wf_vq", JSON.stringify(vq)); } catch (e) {}
@@ -643,7 +643,7 @@ $("vgo").onclick = () => {
   toast(`Вариант из ${codes.length} задач собран — выбирай задачи из списка по порядку`);
 };
 $("trandom").onclick = () => {
-  const pool = TASKS ? TASKS.filter((t) => !tsec || t.s === tsec) : [];
+  const pool = TASKS ? TASKS.filter((t) => t.v !== -1 && (!tsec || tsec === "__variant" || t.s === tsec)) : [];
   if (pool.length) loadCode(pool[Math.floor(Math.random() * pool.length)].c);
 };
 
