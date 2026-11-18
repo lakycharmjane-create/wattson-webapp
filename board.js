@@ -258,12 +258,53 @@ function setTool(t) {
   cv.style.cursor = { select: "default", hand: "grab", pen: "crosshair", eraser: "cell", text: "text" }[t] || "default";
 }
 tbs.forEach((b) => b.addEventListener("click", () => setTool(b.dataset.tool)));
+const PALETTE = [...document.querySelectorAll("#tools .sw[data-c]")].map((x) => x.dataset.c);
 function setColor(c) {
-  color = c; document.querySelectorAll("#tools .sw").forEach((x) => x.classList.toggle("on", x.dataset.c === c));
+  color = c;
+  document.querySelectorAll("#tools .sw[data-c]").forEach((x) => x.classList.toggle("on", x.dataset.c === c));
+  $("custom").classList.toggle("on", !PALETTE.includes(c));
   const so = selected && objs.get(selected);
   if (so && so.type === "text") { so.c = c; send({ t: "upd", id: so.id, c }); invalidate(); }
 }
-document.querySelectorAll("#tools .sw").forEach((s) => s.addEventListener("click", () => setColor(s.dataset.c)));
+document.querySelectorAll("#tools .sw[data-c]").forEach((s) => s.addEventListener("click", () => setColor(s.dataset.c)));
+
+// ---------------------------------------------------------------- цветовой круг (HSV)
+const wheel = $("wheel"), wctx = wheel.getContext("2d");
+let hsv = { h: 0, s: 1, v: 1 };
+function hsv2hex(h, s, v) {
+  const f = (n) => { const k = (n + h / 60) % 6; return v - v * s * Math.max(0, Math.min(k, 4 - k, 1)); };
+  return "#" + [f(5), f(3), f(1)].map((x) => Math.round(x * 255).toString(16).padStart(2, "0")).join("");
+}
+function drawWheel() {                                  // оттенок — по углу, насыщенность — по радиусу
+  const R = wheel.width / 2, img = wctx.createImageData(wheel.width, wheel.height);
+  for (let y = 0; y < wheel.height; y++) for (let x = 0; x < wheel.width; x++) {
+    const dx = x - R, dy = y - R, r = Math.hypot(dx, dy), i = (y * wheel.width + x) * 4;
+    if (r > R) { img.data[i + 3] = 0; continue; }
+    const hex = hsv2hex((Math.atan2(dy, dx) * 180 / Math.PI + 360) % 360, r / R, hsv.v);
+    img.data[i] = parseInt(hex.slice(1, 3), 16); img.data[i + 1] = parseInt(hex.slice(3, 5), 16); img.data[i + 2] = parseInt(hex.slice(5, 7), 16); img.data[i + 3] = 255;
+  }
+  wctx.putImageData(img, 0, 0);
+  const a = hsv.h * Math.PI / 180, px = R + Math.cos(a) * hsv.s * R, py = R + Math.sin(a) * hsv.s * R;   // кружок-маркер
+  wctx.strokeStyle = "#fff"; wctx.lineWidth = 3; wctx.beginPath(); wctx.arc(px, py, 7, 0, 7); wctx.stroke();
+  wctx.strokeStyle = "#0006"; wctx.lineWidth = 1; wctx.beginPath(); wctx.arc(px, py, 8.5, 0, 7); wctx.stroke();
+}
+function pickColor() {
+  const hex = hsv2hex(hsv.h, hsv.s, hsv.v);
+  $("custom").style.background = hex; $("cprev").style.background = hex; $("chex").textContent = hex;
+  setColor(hex); drawWheel();
+}
+function wheelPoint(e) {
+  const r = wheel.getBoundingClientRect(), R = r.width / 2, dx = e.clientX - r.left - R, dy = e.clientY - r.top - R;
+  hsv.h = (Math.atan2(dy, dx) * 180 / Math.PI + 360) % 360; hsv.s = Math.min(1, Math.hypot(dx, dy) / R); pickColor();
+}
+let wheelDown = false;
+wheel.addEventListener("pointerdown", (e) => { wheelDown = true; wheel.setPointerCapture(e.pointerId); wheelPoint(e); });
+wheel.addEventListener("pointermove", (e) => { if (wheelDown) wheelPoint(e); });
+wheel.addEventListener("pointerup", () => { wheelDown = false; });
+$("val").addEventListener("input", () => { hsv.v = $("val").value / 100; pickColor(); });
+const toggleCp = (on) => { const p = $("cp"); p.style.display = (on ?? p.style.display === "none") ? "flex" : "none"; if (p.style.display === "flex") { $("tasks").style.display = "none"; drawWheel(); } };
+$("custom").addEventListener("click", () => toggleCp());
+$("cpok").onclick = () => toggleCp(false);
 function setBrush(w) { brush = w; document.querySelectorAll("#wd i").forEach((x) => x.classList.toggle("on", +x.dataset.w === w)); }
 document.querySelectorAll("#wd i").forEach((i) => i.addEventListener("click", () => setBrush(+i.dataset.w)));
 
@@ -506,16 +547,52 @@ window.addEventListener("drop", (e) => {
 });
 
 // ---------------------------------------------------------------- код ФИПИ
-function loadFipi() {
-  const code = $("code").value.trim();
-  if (!code) { $("code").focus(); return; }
+function loadCode(code) {
   if (!online) { toast("Нет связи с сервером"); return; }
   const [cx, cy] = screenToWorld(VW / 2, VH / 2);
   send({ t: "fipi", code, x: +cx.toFixed(1), y: +cy.toFixed(1) });
-  $("code").value = ""; $("code").blur(); toast(`Загружаю задачу ${code.toUpperCase()}…`, 1500);
+  toast(`Загружаю задачу ${code.toUpperCase()}…`, 1500);
+}
+function loadFipi() {
+  const code = $("code").value.trim();
+  if (!code) { $("code").focus(); return; }
+  loadCode(code); $("code").value = ""; $("code").blur();
 }
 $("load").onclick = loadFipi;
 $("code").addEventListener("keydown", (e) => { if (e.key === "Enter") loadFipi(); if (e.key === "Escape") $("code").blur(); e.stopPropagation(); });
+
+// ---------------------------------------------------------------- список задач (поиск, разделы, случайная)
+let TASKS = null, tsec = "";
+const httpBase = () => WS_URL.replace(/^ws/, "http").replace(/\/ws.*$/, "");
+function renderTasks() {
+  const q = $("tq").value.trim().toLowerCase();
+  const secs = [...new Set(TASKS.map((t) => t.s).filter(Boolean))];
+  $("chips").innerHTML = ["", ...secs].map((s) => `<i class="${s === tsec ? "on" : ""}" data-s="${s}">${s || "Все"}</i>`).join("");
+  $("chips").querySelectorAll("i").forEach((i) => i.addEventListener("click", () => { tsec = i.dataset.s; renderTasks(); }));
+  const list = TASKS.filter((t) => (!tsec || t.s === tsec) && (!q || t.c.toLowerCase().includes(q) || t.t.toLowerCase().includes(q) || (t.k || "").toLowerCase().includes(q)));
+  $("tcount").textContent = `${list.length} из ${TASKS.length}`;
+  $("tlist").innerHTML = list.slice(0, 150).map((t) => `<div class="ti" data-c="${t.c}"><b>${t.c}</b>${t.t.replace(/</g, "&lt;")}<small>${(t.k || t.s || "").replace(/</g, "&lt;")}</small></div>`).join("") || "<div class='ti'>Ничего не найдено</div>";
+  $("tlist").querySelectorAll(".ti[data-c]").forEach((d) => d.addEventListener("click", () => loadCode(d.dataset.c)));
+}
+async function toggleTasks(on) {
+  const p = $("tasks"), show = on ?? p.style.display === "none";
+  p.style.display = show ? "flex" : "none";
+  if (!show) return;
+  toggleCp(false);
+  if (!TASKS) {
+    $("tlist").innerHTML = "<div class='ti'>Загружаю список…</div>";
+    try { TASKS = await (await fetch(httpBase() + "/tasks")).json(); } catch (e) { $("tlist").innerHTML = "<div class='ti'>Не удалось загрузить список задач</div>"; return; }
+  }
+  renderTasks(); $("tq").focus();
+}
+$("tasksBtn").onclick = () => toggleTasks();
+$("tclose").onclick = () => toggleTasks(false);
+$("tq").addEventListener("input", () => TASKS && renderTasks());
+$("tq").addEventListener("keydown", (e) => { if (e.key === "Escape") toggleTasks(false); e.stopPropagation(); });
+$("trandom").onclick = () => {
+  const pool = TASKS ? TASKS.filter((t) => !tsec || t.s === tsec) : [];
+  if (pool.length) loadCode(pool[Math.floor(Math.random() * pool.length)].c);
+};
 
 // ---------------------------------------------------------------- приглашение, помощь
 const inviteLink = () => (BOT ? `https://t.me/${BOT}?start=room_${ROOM}` : location.href);
@@ -545,10 +622,12 @@ window.addEventListener("keydown", (e) => {
   if (k === "i") { $("file").click(); return; }
   if (k === "f") { e.preventDefault(); $("code").focus(); return; }
   if (k === "?" || (e.code === "Slash" && e.shiftKey) || e.key === "F1") { e.preventDefault(); toggleHelp(); return; }
-  if (k === "escape") { toggleHelp(false); selected = null; invalidate(); return; }
+  if (k === "escape") { toggleHelp(false); toggleCp(false); toggleTasks(false); selected = null; invalidate(); return; }
   if (k === "delete" || k === "backspace") { if (selected) { e.preventDefault(); delObj(selected); } return; }
   if (e.code === "Digit1" && e.shiftKey) { e.preventDefault(); fitAll(); return; }
-  if (/^[1-6]$/.test(k)) { setColor([...document.querySelectorAll("#tools .sw")][+k - 1].dataset.c); return; }
+  if (/^[1-7]$/.test(k)) { setColor(PALETTE[+k - 1]); return; }
+  if (k === "c") { toggleCp(); return; }
+  if (k === "g") { toggleTasks(); return; }
   if (k === "0") { zoomAt(VW / 2, VH / 2, 1 / cam.z); return; }
   if (k === "+" || k === "=") { zoomAt(VW / 2, VH / 2, 1.25); return; }
   if (k === "-" || k === "_") { zoomAt(VW / 2, VH / 2, 0.8); return; }

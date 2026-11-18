@@ -26,6 +26,23 @@
     .wd i { width: 24px; height: 24px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
     .wd i.on { background: var(--blue-bg); }
     .wd i b { display: block; background: var(--text); border-radius: 50%; }
+    .sw.rainbow { background: conic-gradient(red, yellow, lime, cyan, blue, magenta, red); }
+    #cp { left: 70px; top: 50%; transform: translateY(-50%); padding: 12px; display: flex; flex-direction: column; gap: 8px; align-items: center; }
+    #wheel { border-radius: 50%; cursor: crosshair; touch-action: none; }
+    #val { width: 180px; }
+    .cprow { display: flex; align-items: center; gap: 8px; width: 100%; }
+    #cprev { width: 28px; height: 28px; border-radius: 50%; box-shadow: 0 0 0 1px var(--line); }
+    .cprow b { flex: 1; font-size: 13px; color: var(--muted); }
+    #tasks { right: 12px; top: 64px; width: 360px; max-width: calc(100% - 24px); max-height: calc(100% - 140px); padding: 10px; display: flex; flex-direction: column; gap: 6px; }
+    #tasks .th { display: flex; align-items: center; gap: 8px; } #tasks .th b { flex: 1; } #tcount { font-size: 12px; color: var(--muted); }
+    #tq { height: 34px; border: 2px solid var(--line); border-radius: 9px; padding: 0 10px; font: inherit; font-size: 14px; background: var(--bg); color: var(--text); outline: none; }
+    #chips { display: flex; flex-wrap: wrap; gap: 4px; }
+    #chips i { font-style: normal; font-size: 12px; font-weight: 700; padding: 4px 9px; border-radius: 14px; background: var(--bg); color: var(--muted); cursor: pointer; }
+    #chips i.on { background: var(--blue-bg); color: var(--blue); }
+    #tlist { overflow-y: auto; min-height: 80px; flex: 1; }
+    .ti { padding: 7px 8px; border-radius: 8px; cursor: pointer; font-size: 13px; line-height: 1.3; border-bottom: 1px solid var(--line); }
+    .ti:hover { background: var(--bg); }
+    .ti b { color: var(--blue); font-size: 12px; margin-right: 6px; } .ti small { display: block; color: var(--muted); font-size: 11px; }
     /* правый верх */
     #top { right: 12px; top: 12px; display: flex; align-items: center; gap: 6px; padding: 6px 8px; flex-wrap: wrap; justify-content: flex-end; max-width: calc(100% - 24px); }
     #top input { width: 150px; height: 34px; border: 2px solid var(--line); border-radius: 9px; padding: 0 10px; font: inherit; font-size: 14px; background: var(--bg); color: var(--text); text-transform: uppercase; outline: none; }
@@ -59,6 +76,8 @@
       .tb kbd { display: none; }
       #zoom { bottom: 70px; }
       #top input { width: 110px; }
+      #cp { left: 50%; top: auto; bottom: 80px; transform: translateX(-50%); }
+      #tasks { top: 110px; right: 12px; left: 12px; width: auto; max-height: calc(100% - 200px); }
       #toast { bottom: 130px; }
     }
   </style>
@@ -74,12 +93,14 @@
     <button class="tb" data-tool="text" title="Текст (T)">🔤<kbd>T</kbd></button>
     <button class="tb" id="imgBtn" title="Фото из галереи / файла (I)">🖼️<kbd>I</kbd></button>
     <div class="sep"></div>
-    <span class="sw on" data-c="#222222" style="background:#222222" title="1"></span>
-    <span class="sw" data-c="#e53935" style="background:#e53935" title="2"></span>
-    <span class="sw" data-c="#1e88e5" style="background:#1e88e5" title="3"></span>
-    <span class="sw" data-c="#43a047" style="background:#43a047" title="4"></span>
-    <span class="sw" data-c="#fb8c00" style="background:#fb8c00" title="5"></span>
-    <span class="sw" data-c="#8e24aa" style="background:#8e24aa" title="6"></span>
+    <span class="sw on" data-c="#222222" style="background:#222222" title="Чёрный (1)"></span>
+    <span class="sw" data-c="#ffffff" style="background:#ffffff" title="Белый (2)"></span>
+    <span class="sw" data-c="#e53935" style="background:#e53935" title="3"></span>
+    <span class="sw" data-c="#1e88e5" style="background:#1e88e5" title="4"></span>
+    <span class="sw" data-c="#43a047" style="background:#43a047" title="5"></span>
+    <span class="sw" data-c="#fb8c00" style="background:#fb8c00" title="6"></span>
+    <span class="sw" data-c="#8e24aa" style="background:#8e24aa" title="7"></span>
+    <span class="sw rainbow" id="custom" title="Любой цвет — цветовой круг (C)"></span>
     <div class="wd" id="wd">
       <i data-w="2" title="Тонко ( [ )"><b style="width:4px;height:4px"></b></i>
       <i data-w="4" class="on" title="Средне"><b style="width:8px;height:8px"></b></i>
@@ -96,6 +117,7 @@
     <button class="btn ghost" id="invite">Позвать друга</button>
     <input id="code" maxlength="12" placeholder="Код ФИПИ" autocomplete="off" spellcheck="false" title="Код задачи ФИПИ (F)">
     <button class="btn" id="load">Загрузить</button>
+    <button class="btn ghost" id="tasksBtn" title="Список задач (G)">📚 Задачи</button>
     <button class="btn ghost sq" id="helpBtn" title="Горячие клавиши (?)">?</button>
   </div>
 
@@ -104,6 +126,22 @@
     <span id="zv" title="Сбросить масштаб (0)">100%</span>
     <button class="tb" id="zin" title="Приблизить (+)">+</button>
     <button class="tb" id="fit" title="Показать всё (Shift+1)">⛶</button>
+  </div>
+
+  <!-- цветовой круг: угол = оттенок, расстояние от центра = насыщенность, ползунок = яркость -->
+  <div class="panel" id="cp" style="display:none">
+    <canvas id="wheel" width="180" height="180"></canvas>
+    <input type="range" id="val" min="0" max="100" value="100" title="Яркость">
+    <div class="cprow"><span id="cprev"></span><b id="chex">#222222</b><button class="btn sq" id="cpok" title="Готово">✓</button></div>
+  </div>
+
+  <!-- список задач ФИПИ -->
+  <div class="panel" id="tasks" style="display:none">
+    <div class="th"><b>📚 Задачи</b><span id="tcount"></span><button class="btn ghost sq" id="tclose">✕</button></div>
+    <input id="tq" placeholder="Поиск по тексту или коду" autocomplete="off">
+    <div id="chips"></div>
+    <div id="tlist"></div>
+    <button class="btn" id="trandom" style="width:100%;margin-top:6px">🎲 Случайная задача</button>
   </div>
 
   <textarea id="txt" rows="1"></textarea>
@@ -116,11 +154,12 @@
       <table>
         <tr><td><kbd class="k">V</kbd> <kbd class="k">H</kbd> <kbd class="k">P</kbd> <kbd class="k">E</kbd> <kbd class="k">T</kbd></td><td>выбрать · рука · карандаш · ластик · текст</td></tr>
         <tr><td><kbd class="k">I</kbd> / <kbd class="k">Ctrl</kbd>+<kbd class="k">V</kbd></td><td>фото из галереи/файла · вставить картинку из буфера</td></tr>
-        <tr><td><kbd class="k">F</kbd></td><td>ввести код задачи ФИПИ</td></tr>
+        <tr><td><kbd class="k">F</kbd> · <kbd class="k">G</kbd></td><td>ввести код задачи ФИПИ · открыть список задач</td></tr>
+        <tr><td><kbd class="k">C</kbd></td><td>цветовой круг (любой цвет)</td></tr>
         <tr><td><kbd class="k">Пробел</kbd> + мышь</td><td>двигать доску (также колёсико мыши зажатым)</td></tr>
         <tr><td>колёсико / <kbd class="k">+</kbd> <kbd class="k">−</kbd></td><td>масштаб (тачпад: щипок — масштаб, два пальца — двигать)</td></tr>
         <tr><td><kbd class="k">0</kbd> · <kbd class="k">Shift</kbd>+<kbd class="k">1</kbd></td><td>масштаб 100% · показать всё</td></tr>
-        <tr><td><kbd class="k">1</kbd>…<kbd class="k">6</kbd> · <kbd class="k">[</kbd> <kbd class="k">]</kbd></td><td>цвет · толщина линии</td></tr>
+        <tr><td><kbd class="k">1</kbd>…<kbd class="k">7</kbd> · <kbd class="k">[</kbd> <kbd class="k">]</kbd></td><td>цвет · толщина линии</td></tr>
         <tr><td><kbd class="k">Ctrl</kbd>+<kbd class="k">Z</kbd> · <kbd class="k">Ctrl</kbd>+<kbd class="k">Shift</kbd>+<kbd class="k">Z</kbd></td><td>отменить · повторить</td></tr>
         <tr><td><kbd class="k">Del</kbd></td><td>удалить выделенное</td></tr>
         <tr><td><kbd class="k">←</kbd><kbd class="k">↑</kbd><kbd class="k">→</kbd><kbd class="k">↓</kbd></td><td>двигать доску (с Shift — быстрее)</td></tr>
@@ -129,6 +168,6 @@
       <p style="color:var(--muted);font-size:13px;margin:10px 0 0">Картинки и текст можно двигать, у картинки есть уголок для изменения размера. Файлы можно перетащить прямо на доску.</p>
     </div>
   </div>
-  <script src="board.js?v=3"></script>
+  <script src="board.js?v=4"></script>
 </body>
 </html>
