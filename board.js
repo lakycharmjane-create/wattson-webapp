@@ -479,12 +479,12 @@ function addImageFile(file, at) {
   const url = URL.createObjectURL(file), im = new Image();
   im.onload = () => {
     let max = 1600, q = 0.85, data;
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 8; i++) {
       const sc = Math.min(1, max / Math.max(im.naturalWidth, im.naturalHeight));
       const c = document.createElement("canvas"); c.width = Math.round(im.naturalWidth * sc); c.height = Math.round(im.naturalHeight * sc);
       const g = c.getContext("2d"); g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height); g.drawImage(im, 0, 0, c.width, c.height);
       data = c.toDataURL("image/jpeg", q);
-      if (data.length < 2_300_000) { placeImage(data, c.width, c.height, at); break; }
+      if (data.length < 950_000) { placeImage(data, c.width, c.height, at); break; }
       max = Math.round(max * 0.7); q -= 0.08;
     }
     URL.revokeObjectURL(url);
