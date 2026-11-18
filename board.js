@@ -35,6 +35,7 @@ const worldToScreen = (wx, wy) => [(wx - cam.x) * cam.z, (wy - cam.y) * cam.z];
 const newId = () => rnd(10);
 
 // ---------------------------------------------------------------- связь
+let fails = 0;
 let ws = null, online = false, wantOpen = true, myName = "Гость", firstState = true;
 const send = (m) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(m)); };
 
@@ -48,7 +49,7 @@ function connect() {
     let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
     switch (m.t) {
       case "state":
-        online = true; showMsg("");
+        online = true; fails = 0; showMsg("");
         objs.clear(); m.objs.forEach((o) => objs.set(o.id, o));
         if (firstState && m.objs.length) fitAll();
         firstState = false;
@@ -70,14 +71,14 @@ function connect() {
       case "denied": wantOpen = false; showMsg("Не удалось проверить, что ты из Telegram. Открой доску через бота."); break;
     }
   };
-  ws.onclose = () => { online = false; setPeers(0, []); if (wantOpen) setTimeout(connect, 1500); };
+  ws.onclose = () => { if (!online) fails++; online = false; setPeers(0, []); if (wantOpen) setTimeout(connect, 1500); };
   ws.onerror = () => {};
 }
 function setPeers(n, names) {
   const p = $("peers");
   p.classList.toggle("on", n >= 2);
   const others = names.filter((x, i) => !(x === myName && names.indexOf(x) === i));
-  p.textContent = !online ? "нет связи…" : n >= 2 ? `👥 ${others.join(", ") || "друг"} на доске` : "ты один — позови друга";
+  p.textContent = !online ? (fails >= 3 ? "нет связи — сеть может блокировать сервер, попробуй VPN" : "нет связи…") : n >= 2 ? `👥 ${others.join(", ") || "друг"} на доске` : "ты один — позови друга";
 }
 
 // ---------------------------------------------------------------- рисование на холсте
