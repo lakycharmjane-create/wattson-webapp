@@ -89,6 +89,19 @@
       #tasks { top: 110px; right: 12px; left: 12px; width: auto; max-height: calc(100% - 200px); }
       #toast { bottom: 130px; }
     }
+    /* 🐱 Ваттсон */
+    #aip { right: 12px; bottom: 14px; width: 340px; max-width: calc(100% - 24px); height: 360px; max-height: calc(100% - 140px); padding: 10px; display: none; flex-direction: column; gap: 6px; }
+    #aip .th { display: flex; align-items: center; gap: 8px; } #aip .th b { flex: 1; } #aip .th img { height: 26px; }
+    #ailog { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; font-size: 14px; line-height: 1.35; }
+    #ailog div { padding: 6px 10px; border-radius: 12px; max-width: 88%; white-space: pre-wrap; word-break: break-word; }
+    #ailog .me { align-self: flex-end; background: var(--blue-bg); } #ailog .cat { align-self: flex-start; background: var(--bg); } #ailog .sys { align-self: center; color: var(--muted); font-size: 12px; background: none; }
+    #airow { display: flex; gap: 6px; align-items: center; }
+    #aiIn { flex: 1; height: 36px; border: 2px solid var(--line); border-radius: 9px; padding: 0 10px; font: inherit; font-size: 14px; background: var(--bg); color: var(--text); outline: none; min-width: 0; }
+    #aiIn:focus { border-color: var(--blue); }
+    #aiMic.rec { background: #ff4b4b; color: #fff; animation: pulse 1s infinite; }
+    @keyframes pulse { 50% { opacity: .55; } }
+    #aib { position: fixed; z-index: 6; display: none; max-width: 260px; background: #fffbea; color: #2b2f36; border: 2px solid #c7742e; border-radius: 14px; padding: 7px 11px; font-size: 14px; line-height: 1.3; box-shadow: var(--shadow); pointer-events: none; white-space: pre-wrap; }
+    @media (max-width: 760px) { #aip { bottom: 76px; height: 300px; } }
   </style>
 </head>
 <body>
@@ -126,6 +139,7 @@
     <button class="btn ghost" id="invite">Позвать друга</button>
     <input id="code" maxlength="12" placeholder="Код ФИПИ" autocomplete="off" spellcheck="false" title="Код задачи ФИПИ (F)">
     <button class="btn" id="load">Загрузить</button>
+    <button class="btn" id="aiBtn" title="Позвать кота Ваттсона — ИИ-помощника">🐱 Помощь ИИ</button>
     <button class="btn ghost" id="tasksBtn" title="Список задач (G)">📚 Задачи</button>
     <button class="btn ghost sq" id="helpBtn" title="Горячие клавиши (?)">?</button>
   </div>
@@ -164,7 +178,16 @@
     <input id="ansIn" placeholder="Твой ответ" autocomplete="off" spellcheck="false">
     <button class="btn" id="ansGo">Проверить</button>
     <button class="btn ghost" id="ansShow" title="Показать эталонный ответ (от ИИ, не официальный)">Показать ответ</button>
+    <button class="btn ghost" id="ansSol" title="Показать верное решение картинкой рядом с условием">Показать решение</button>
   </div>
+
+  <!-- 🐱 Ваттсон: окно общения -->
+  <div class="panel" id="aip">
+    <div class="th"><img src="cat.png" alt=""><b>Ваттсон · ИИ-помощник</b><button class="btn ghost sq" id="aiClean" title="Стереть красные пометки Ваттсона">🧽</button><button class="btn ghost sq" id="aiClose">✕</button></div>
+    <div id="ailog"></div>
+    <div id="airow"><input id="aiIn" placeholder="Спроси Ваттсона…" autocomplete="off" maxlength="600"><button class="btn ghost sq" id="aiMic" title="Сказать голосом">🎤</button><button class="btn" id="aiGo">▶</button></div>
+  </div>
+  <div id="aib"></div>
 
   <textarea id="txt" rows="1"></textarea>
   <input type="file" id="file" accept="image/*" multiple hidden>
@@ -190,6 +213,6 @@
       <p style="color:var(--muted);font-size:13px;margin:10px 0 0">Картинки и текст можно двигать, у картинки есть уголок для изменения размера. Файлы можно перетащить прямо на доску.</p>
     </div>
   </div>
-  <script src="board.js?v=8"></script>
+  <script src="board.js?v=10"></script>
 </body>
 </html>
