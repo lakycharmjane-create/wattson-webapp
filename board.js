@@ -64,9 +64,9 @@ function connect() {
       case "add": objs.set(m.o.id, m.o); if (m.o.fipi) setCur(m.o.fipi); if (m.focus) focusOn(m.o); invalidate(); break;
       case "checked":
         if (m.ok === null) toast(`Для задачи ${m.code} нет эталонного ответа`);
-        else { toast(`${m.ok ? "✅" : "❌"} ${m.who}: ${m.ok ? "верно!" : "неверно, попробуй ещё"}`, 3500); if (m.ok && m.who === myName) { solved.add(m.code); if (TASKS) renderTasks(); } }
+        else { toast(`${m.ok ? "✅" : "❌"} ${m.who}: ${m.ok ? "верно!" : "неверно, попробуй ещё"}${m.v === -1 ? " (ответ в базе ФИПИ не подтвердил — возможна ошибка в эталоне)" : ""}`, m.v === -1 ? 6000 : 3500); if (m.ok && m.who === myName) { solved.add(m.code); if (TASKS) renderTasks(); } }
         break;
-      case "revealed": toast(`Ответ к ${m.code}: ${m.answer}  (эталон от ИИ — не официальный)`, 9000); break;
+      case "revealed": toast(`Ответ к ${m.code}: ${m.answer}  (${m.v === 1 ? "подтверждён ФИПИ ✔" : m.v === -1 ? "ФИПИ НЕ подтвердил — сомнительный" : "эталон от ИИ, не официальный"})`, 9000); break;
       case "variant": variant = m.codes || []; tsec = "__variant"; if (TASKS) renderTasks(); break;
       case "upd": { const o = objs.get(m.id); if (o) { Object.assign(o, m); delete o.t; invalidate(); } break; }
       case "mv": { const o = objs.get(m.id); if (o && o.p) { o.p = o.p.map(([x, y]) => [x + m.dx, y + m.dy]); invalidate(); } break; }
@@ -614,19 +614,33 @@ $("tasksBtn").onclick = () => toggleTasks();
 $("tclose").onclick = () => toggleTasks(false);
 $("tq").addEventListener("input", () => TASKS && renderTasks());
 $("tq").addEventListener("keydown", (e) => { if (e.key === "Escape") toggleTasks(false); e.stopPropagation(); });
-// «Вариант»: набор по структуре ЕГЭ (доли разделов), порядок как в экзамене; номера задач в базе не сохранились
-const QUOTAS = [["Механика", 7], ["Молекулярная физика", 5], ["Электродинамика", 6], ["Квантовая физика", 3], ["Оптика", 1]];
-$("tvariant").onclick = () => {
+// «Вариант»: ученик сам выбирает, сколько задач из каждого раздела. Номера задач в базе не сохранились, поэтому — по разделам.
+const DEFAULT_Q = { "Механика": 7, "Молекулярная физика": 5, "Электродинамика": 6, "Квантовая физика": 3, "Оптика": 1 };
+let vq = { ...DEFAULT_Q };
+try { Object.assign(vq, JSON.parse(localStorage.getItem("wf_vq") || "{}")); } catch (e) {}
+function vSum() { const n = [...document.querySelectorAll("#vrows input")].reduce((s, i) => s + (+i.value || 0), 0); $("vsum").textContent = `Всего: ${n}`; return n; }
+function openVForm() {
   if (!TASKS) return;
-  if (variant.length && !confirm("Собрать новый вариант вместо текущего?")) return;
-  const codes = [];
-  for (const [sec, n] of QUOTAS) {
-    const pool = TASKS.filter((t) => t.s === sec).sort(() => Math.random() - 0.5).slice(0, n);
-    codes.push(...pool.map((t) => t.c));
-  }
+  const have = {}; TASKS.forEach((t) => { have[t.s] = (have[t.s] || 0) + 1; });
+  $("vrows").innerHTML = Object.keys(have).sort((x, y) => (DEFAULT_Q[y] ? 1 : 0) - (DEFAULT_Q[x] ? 1 : 0)).map((s) =>
+    `<div class="vr"><span>${s} <small>(есть ${have[s]})</small></span><input type="number" min="0" max="${have[s]}" value="${Math.min(vq[s] || 0, have[s])}" data-s="${s}"></div>`).join("");
+  $("vrows").querySelectorAll("input").forEach((i) => i.addEventListener("input", vSum));
+  vSum(); $("vform").style.display = "block"; $("tlist").style.display = "none"; $("chips").style.display = "none";
+}
+function closeVForm() { $("vform").style.display = "none"; $("tlist").style.display = ""; $("chips").style.display = ""; }
+$("tvariant").onclick = openVForm;
+$("vcancel").onclick = closeVForm;
+$("vgo").onclick = () => {
   if (!online) { toast("Нет связи с сервером"); return; }
-  send({ t: "variant", codes }); variant = codes; tsec = "__variant"; solved = new Set(); renderTasks();
-  toast("Вариант собран — выбирай задачи из списка по порядку");
+  const codes = []; vq = {};
+  document.querySelectorAll("#vrows input").forEach((i) => {
+    const n = Math.max(0, Math.min(+i.value || 0, +i.max)); vq[i.dataset.s] = n;
+    codes.push(...TASKS.filter((t) => t.s === i.dataset.s).sort(() => Math.random() - 0.5).slice(0, n).map((t) => t.c));
+  });
+  if (!codes.length) { toast("Выбери хотя бы одну задачу"); return; }
+  try { localStorage.setItem("wf_vq", JSON.stringify(vq)); } catch (e) {}
+  send({ t: "variant", codes }); variant = codes; tsec = "__variant"; solved = new Set(); closeVForm(); renderTasks();
+  toast(`Вариант из ${codes.length} задач собран — выбирай задачи из списка по порядку`);
 };
 $("trandom").onclick = () => {
   const pool = TASKS ? TASKS.filter((t) => !tsec || t.s === tsec) : [];
