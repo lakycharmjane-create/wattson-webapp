@@ -43,6 +43,11 @@
     .ti { padding: 7px 8px; border-radius: 8px; cursor: pointer; font-size: 13px; line-height: 1.3; border-bottom: 1px solid var(--line); }
     .ti:hover { background: var(--bg); }
     .ti b { color: var(--blue); font-size: 12px; margin-right: 6px; } .ti small { display: block; color: var(--muted); font-size: 11px; }
+    #ans { left: 50%; bottom: 14px; transform: translateX(-50%); display: flex; align-items: center; gap: 6px; padding: 6px 8px; }
+    #ans input { width: 150px; height: 34px; border: 2px solid var(--line); border-radius: 9px; padding: 0 10px; font: inherit; font-size: 14px; background: var(--bg); color: var(--text); outline: none; }
+    #ans input:focus { border-color: var(--blue); }
+    #ansCode { font-size: 12px; color: var(--muted); }
+    .ti.done { background: rgba(88,204,2,.14); }
     /* правый верх */
     #top { right: 12px; top: 12px; display: flex; align-items: center; gap: 6px; padding: 6px 8px; flex-wrap: wrap; justify-content: flex-end; max-width: calc(100% - 24px); }
     #top input { width: 150px; height: 34px; border: 2px solid var(--line); border-radius: 9px; padding: 0 10px; font: inherit; font-size: 14px; background: var(--bg); color: var(--text); text-transform: uppercase; outline: none; }
@@ -76,6 +81,7 @@
       .tb kbd { display: none; }
       #zoom { bottom: 70px; }
       #top input { width: 110px; }
+      #ans { bottom: 76px; max-width: calc(100% - 20px); }
       #cp { left: 50%; top: auto; bottom: 80px; transform: translateX(-50%); }
       #tasks { top: 110px; right: 12px; left: 12px; width: auto; max-height: calc(100% - 200px); }
       #toast { bottom: 130px; }
@@ -141,7 +147,15 @@
     <input id="tq" placeholder="Поиск по тексту или коду" autocomplete="off">
     <div id="chips"></div>
     <div id="tlist"></div>
-    <button class="btn" id="trandom" style="width:100%;margin-top:6px">🎲 Случайная задача</button>
+    <div style="display:flex;gap:6px;margin-top:6px"><button class="btn" id="trandom" style="flex:1">🎲 Случайная</button><button class="btn ghost" id="tvariant" style="flex:1" title="Набор задач по структуре ЕГЭ">📝 Вариант</button></div>
+  </div>
+
+  <!-- проверка ответа к задаче ФИПИ -->
+  <div class="panel" id="ans" style="display:none">
+    <b id="ansCode"></b>
+    <input id="ansIn" placeholder="Твой ответ" autocomplete="off" spellcheck="false">
+    <button class="btn" id="ansGo">Проверить</button>
+    <button class="btn ghost" id="ansShow" title="Показать эталонный ответ (от ИИ, не официальный)">Показать ответ</button>
   </div>
 
   <textarea id="txt" rows="1"></textarea>
@@ -168,6 +182,6 @@
       <p style="color:var(--muted);font-size:13px;margin:10px 0 0">Картинки и текст можно двигать, у картинки есть уголок для изменения размера. Файлы можно перетащить прямо на доску.</p>
     </div>
   </div>
-  <script src="board.js?v=5"></script>
+  <script src="board.js?v=6"></script>
 </body>
 </html>

@@ -36,6 +36,7 @@ const newId = () => rnd(10);
 
 // ---------------------------------------------------------------- связь
 let fails = 0;
+let curCode = "", variant = [], solved = new Set();            // текущая задача ФИПИ, общий «вариант», решённые мной
 let ws = null, online = false, wantOpen = true, myName = "Гость", firstState = true;
 const send = (m) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(m)); };
 
@@ -50,6 +51,7 @@ function connect() {
     switch (m.t) {
       case "state":
         online = true; fails = 0; showMsg("");
+        variant = m.variant || [];
         objs.clear(); m.objs.forEach((o) => objs.set(o.id, o));
         if (firstState && m.objs.length) fitAll();
         firstState = false;
@@ -59,7 +61,13 @@ function connect() {
         if (!s) { s = { id: m.id, type: "stroke", c: m.c, w: m.w, p: [] }; objs.set(m.id, s); }
         s.p.push(...m.p); invalidate(); break;
       }
-      case "add": objs.set(m.o.id, m.o); if (m.focus) focusOn(m.o); invalidate(); break;
+      case "add": objs.set(m.o.id, m.o); if (m.o.fipi) setCur(m.o.fipi); if (m.focus) focusOn(m.o); invalidate(); break;
+      case "checked":
+        if (m.ok === null) toast(`Для задачи ${m.code} нет эталонного ответа`);
+        else { toast(`${m.ok ? "✅" : "❌"} ${m.who}: ${m.ok ? "верно!" : "неверно, попробуй ещё"}`, 3500); if (m.ok && m.who === myName) { solved.add(m.code); if (TASKS) renderTasks(); } }
+        break;
+      case "revealed": toast(`Ответ к ${m.code}: ${m.answer}  (эталон от ИИ — не официальный)`, 9000); break;
+      case "variant": variant = m.codes || []; tsec = "__variant"; if (TASKS) renderTasks(); break;
       case "upd": { const o = objs.get(m.id); if (o) { Object.assign(o, m); delete o.t; invalidate(); } break; }
       case "mv": { const o = objs.get(m.id); if (o && o.p) { o.p = o.p.map(([x, y]) => [x + m.dx, y + m.dy]); invalidate(); } break; }
       case "del": objs.delete(m.id); if (selected === m.id) selected = null; invalidate(); break;
@@ -384,7 +392,8 @@ cv.addEventListener("pointerdown", (e) => {
     }
     const hit = hitTest(wx, wy);
     if (hit) {
-      selected = hit.id; action = { kind: "move", o: hit, lx: wx, ly: wy, acc: [0, 0], last: 0, moved: false };
+      selected = hit.id; if (hit.fipi) setCur(hit.fipi);
+      action = { kind: "move", o: hit, lx: wx, ly: wy, acc: [0, 0], last: 0, moved: false };
       if (hit.type === "text" && e.detail === 2) { action = null; editText(hit); }
     } else { selected = null; action = { kind: "pan", sx: e.clientX, sy: e.clientY, cx: cam.x, cy: cam.y }; }
     invalidate();
@@ -562,17 +571,32 @@ function loadFipi() {
 $("load").onclick = loadFipi;
 $("code").addEventListener("keydown", (e) => { if (e.key === "Enter") loadFipi(); if (e.key === "Escape") $("code").blur(); e.stopPropagation(); });
 
+// ---------------------------------------------------------------- проверка ответа
+function setCur(code) { curCode = code; $("ans").style.display = code ? "flex" : "none"; $("ansCode").textContent = code ? "Задача " + code : ""; }
+function checkAnswer() {
+  const a = $("ansIn").value.trim();
+  if (!curCode || !a) { $("ansIn").focus(); return; }
+  if (!online) { toast("Нет связи с сервером"); return; }
+  send({ t: "check", code: curCode, answer: a }); $("ansIn").value = "";
+}
+$("ansGo").onclick = checkAnswer;
+$("ansIn").addEventListener("keydown", (e) => { if (e.key === "Enter") checkAnswer(); if (e.key === "Escape") $("ansIn").blur(); e.stopPropagation(); });
+$("ansShow").onclick = () => { if (curCode && confirm("Показать эталонный ответ обоим? Лучше сначала попробовать решить.")) send({ t: "reveal", code: curCode }); };
+
 // ---------------------------------------------------------------- список задач (поиск, разделы, случайная)
 let TASKS = null, tsec = "";
 const httpBase = () => WS_URL.replace(/^ws/, "http").replace(/\/ws.*$/, "");
 function renderTasks() {
   const q = $("tq").value.trim().toLowerCase();
   const secs = [...new Set(TASKS.map((t) => t.s).filter(Boolean))];
-  $("chips").innerHTML = ["", ...secs].map((s) => `<i class="${s === tsec ? "on" : ""}" data-s="${s}">${s || "Все"}</i>`).join("");
+  const chips = [["", "Все"], ...(variant.length ? [["__variant", `Вариант (${variant.length})`]] : []), ...secs.map((s) => [s, s])];
+  $("chips").innerHTML = chips.map(([s, l]) => `<i class="${s === tsec ? "on" : ""}" data-s="${s}">${l}</i>`).join("");
   $("chips").querySelectorAll("i").forEach((i) => i.addEventListener("click", () => { tsec = i.dataset.s; renderTasks(); }));
-  const list = TASKS.filter((t) => (!tsec || t.s === tsec) && (!q || t.c.toLowerCase().includes(q) || t.t.toLowerCase().includes(q) || (t.k || "").toLowerCase().includes(q)));
+  const byCode = new Map(TASKS.map((t) => [t.c, t]));
+  const base = tsec === "__variant" ? variant.map((c) => byCode.get(c)).filter(Boolean) : TASKS;
+  const list = base.filter((t) => (tsec === "__variant" || !tsec || t.s === tsec) && (!q || t.c.toLowerCase().includes(q) || t.t.toLowerCase().includes(q) || (t.k || "").toLowerCase().includes(q)));
   $("tcount").textContent = `${list.length} из ${TASKS.length}`;
-  $("tlist").innerHTML = list.slice(0, 150).map((t) => `<div class="ti" data-c="${t.c}"><b>${t.c}</b>${t.t.replace(/</g, "&lt;")}<small>${(t.k || t.s || "").replace(/</g, "&lt;")}</small></div>`).join("") || "<div class='ti'>Ничего не найдено</div>";
+  $("tlist").innerHTML = list.slice(0, 150).map((t) => `<div class="ti ${solved.has(t.c) ? "done" : ""}" data-c="${t.c}"><b>${tsec === "__variant" ? (base.indexOf(t) + 1) + ". " : ""}${t.c}${solved.has(t.c) ? " ✅" : ""}</b>${t.t.replace(/</g, "&lt;")}<small>${(t.k || t.s || "").replace(/</g, "&lt;")}</small></div>`).join("") || "<div class='ti'>Ничего не найдено</div>";
   $("tlist").querySelectorAll(".ti[data-c]").forEach((d) => d.addEventListener("click", () => loadCode(d.dataset.c)));
 }
 async function toggleTasks(on) {
@@ -590,6 +614,20 @@ $("tasksBtn").onclick = () => toggleTasks();
 $("tclose").onclick = () => toggleTasks(false);
 $("tq").addEventListener("input", () => TASKS && renderTasks());
 $("tq").addEventListener("keydown", (e) => { if (e.key === "Escape") toggleTasks(false); e.stopPropagation(); });
+// «Вариант»: набор по структуре ЕГЭ (доли разделов), порядок как в экзамене; номера задач в базе не сохранились
+const QUOTAS = [["Механика", 7], ["Молекулярная физика", 5], ["Электродинамика", 6], ["Квантовая физика", 3], ["Оптика", 1]];
+$("tvariant").onclick = () => {
+  if (!TASKS) return;
+  if (variant.length && !confirm("Собрать новый вариант вместо текущего?")) return;
+  const codes = [];
+  for (const [sec, n] of QUOTAS) {
+    const pool = TASKS.filter((t) => t.s === sec).sort(() => Math.random() - 0.5).slice(0, n);
+    codes.push(...pool.map((t) => t.c));
+  }
+  if (!online) { toast("Нет связи с сервером"); return; }
+  send({ t: "variant", codes }); variant = codes; tsec = "__variant"; solved = new Set(); renderTasks();
+  toast("Вариант собран — выбирай задачи из списка по порядку");
+};
 $("trandom").onclick = () => {
   const pool = TASKS ? TASKS.filter((t) => !tsec || t.s === tsec) : [];
   if (pool.length) loadCode(pool[Math.floor(Math.random() * pool.length)].c);
