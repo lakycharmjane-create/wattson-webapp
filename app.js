@@ -126,9 +126,16 @@ function fromQuery() {
 const picked = new Set();
 try { JSON.parse(localStorage.getItem("wf_pick") || "[]").forEach((id) => byId.has(id) && picked.add(id)); } catch (e) {}
 const opened = new Set();
+let tab = "f";
+try { if (localStorage.getItem("wf_tab") === "d") tab = "d"; } catch (e) {}
+document.querySelectorAll("#tabs [data-tab]").forEach((b) => b.addEventListener("click", () => {
+  tab = b.dataset.tab; haptic("tap");
+  try { localStorage.setItem("wf_tab", tab); } catch (e) {}
+  renderPicker(); window.scrollTo(0, 0);
+}));
 function renderPicker() {
   let html = "";
-  Object.entries(SECTIONS).forEach(([sec, title]) => {
+  ["g7", "g8", "g9", "1", "2", "3"].map((k) => [k, SECTIONS[k]]).forEach(([sec, title]) => {
     const us = UNITS.filter((u) => u.id.split(".")[0] === sec);
     if (!us.length) return;
     const sf = us.flatMap((u) => u.formulas), sk = sf.filter((f) => picked.has(f.id)).length;
@@ -148,9 +155,13 @@ function renderPicker() {
   const dh = UNITS.filter((u) => (typeof DERIVS !== "undefined") && DERIVS[u.id]).map((u) =>
     `<div class="kicker" style="margin:14px 4px 4px;color:${u.color}">${esc(u.title)}</div>` +
     DERIVS[u.id].map((d) => `<div class="topic" style="--c:${u.color}"><button class="trow" data-deriv="${d.id}"><b>${esc(d.name)}</b><small>${d.steps.length} шагов</small></button></div>`).join("")).join("");
-  if (dh) html += `<div class="kicker" style="margin:26px 4px 0">🧩 Выводы формул — по шагам</div>${dh}`;
   const t = $("topics");
-  t.innerHTML = html;
+  document.querySelectorAll("#tabs [data-tab]").forEach((b) => b.classList.toggle("on", b.dataset.tab === tab));
+  $("pickHint").textContent = tab === "f"
+    ? "Выбери, что повторить: весь раздел, тему целиком или отдельные формулы (▾). Потом — «Повторить»."
+    : "Выбери формулу — разберём её вывод по шагам, на каждом шаге нужно сделать только одно действие.";
+  $("pickFooter").classList.toggle("hidden", tab !== "f");
+  t.innerHTML = tab === "f" ? html : dh;
   t.querySelectorAll("[data-deriv]").forEach((b) => b.addEventListener("click", () => {
     const d = Object.values(DERIVS).flat().find((x) => x.id === b.dataset.deriv);
     if (d) startDerivation(d);

@@ -258,3 +258,8 @@ h2.says { font-size: 18px; font-weight: 700; margin-bottom: 14px; }
 .rz.act { border-color: var(--blue); }
 .rin .fbar { margin: 4px 0; height: 2px; }
 .ghostdrag.rt.open { background: var(--bg); }
+
+/* ---------- Вкладки выбора ---------- */
+.tabs { position: sticky; top: 45px; z-index: 4; display: flex; gap: 8px; padding: 8px 16px; background: var(--bg); border-bottom: 2px solid var(--line); max-width: 520px; width: 100%; box-sizing: border-box; margin: 0 auto; }
+.tabs button { flex: 1; padding: 10px 6px; border-radius: 12px; border: 2px solid var(--line); background: none; color: var(--muted); font: inherit; font-weight: 800; font-size: 15px; cursor: pointer; }
+.tabs button.on { border-color: var(--blue); color: var(--blue); background: rgba(28, 176, 246, .12); box-shadow: 0 3px 0 var(--blue); }

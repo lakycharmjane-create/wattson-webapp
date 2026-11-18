@@ -6,17 +6,21 @@
   <title>Повторение формул</title>
   <!-- Библиотека Telegram: даёт объект window.Telegram.WebApp -->
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <link rel="stylesheet" href="style.css?v=11">
+  <link rel="stylesheet" href="style.css?v=12">
 </head>
 <body>
   <!-- Экран 1: выбор формул (если приложение открыли без выбора из бота) -->
   <section id="picker" class="screen hidden">
     <header class="topbar"><div class="brand">🧠 Повторение формул</div></header>
+    <div class="tabs" id="tabs">
+      <button data-tab="f" class="on">Формулы</button>
+      <button data-tab="d">Вывод формул</button>
+    </div>
     <div class="units">
-      <p class="legend">Выбери, что повторить: весь раздел, тему целиком или отдельные формулы (▾). Потом — «Повторить».</p>
+      <p class="legend" id="pickHint"></p>
       <div id="topics"></div>
     </div>
-    <footer class="footer"><button id="startBtn" class="btn" disabled>Выбери формулы</button></footer>
+    <footer class="footer" id="pickFooter"><button id="startBtn" class="btn" disabled>Выбери формулы</button></footer>
   </section>
 
   <!-- Экран 2: повторение -->
@@ -50,9 +54,8 @@
     </footer>
   </section>
 
-  <script src="formulas.js?v=11"></script>
-  <script src="derivations.js?v=11"></script>
-  <script src="derivations2.js?v=11"></script>
-  <script src="app.js?v=11"></script>
+  <script src="formulas.js?v=12"></script>
+  <script src="derivations.js?v=12"></script>
+  <script src="app.js?v=12"></script>
 </body>
 </html>
