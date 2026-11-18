@@ -669,7 +669,7 @@ $("trandom").onclick = () => {
 // ---------------------------------------------------------------- 🐱 Ваттсон (ИИ-помощник)
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let aiQ = Promise.resolve(), aiBusyTimer = 0, aiVoiceEl = null, rec = null;
-const aiRun = (fn) => (aiQ = aiQ.then(fn).catch(() => {}));
+const aiRun = (fn) => (aiQ = aiQ.then(() => Promise.race([fn(), sleep(30000)])).catch(() => {}));   // очередь не должна зависать навсегда
 function aiLog(cls, text) {
   const d = document.createElement("div"); d.className = cls; d.textContent = text;
   const lg = $("ailog"); lg.appendChild(d); lg.scrollTop = lg.scrollHeight; return d;
@@ -754,6 +754,7 @@ function aiTick(now) {
     dirty = true;
   }
   if (ai.text && ai.doneAt && now - ai.doneAt > 15000) { ai.text = ""; ai.doneAt = 0; dirty = true; }
+  if (!ai.text && ai.resolve) { ai.resolve(); ai.resolve = null; }   // реплику стёрли, пока печаталась, — не держим очередь
   if (ai.thinking) dirty = true;
   if (!ai.busy && !ai.thinking && now > ai.nextIdle) aiIdlePick(now);
 }
