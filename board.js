@@ -1,6 +1,7 @@
-// «Решаем вместе» — общая доска для двоих (Telegram Mini App).
+// «Решаем вместе» — бесконечная общая доска (как Miro) для двоих, Telegram Mini App.
 // Адрес: board.html?room=<id>&ws=<wss-адрес сервера>&b=<имя бота>  (их подставляет бот).
-// Штрихи хранятся в нормированных координатах 0..1, поэтому на экранах разного размера доска выглядит одинаково.
+// Объекты доски: stroke (штрих), image (картинка), text (текст). Координаты — «мировые», камера: cam {x, y, z}.
+//   экран = (мир − cam) · z      мир = экран / z + cam
 
 const tg = window.Telegram ? window.Telegram.WebApp : null;
 if (tg) { tg.ready(); tg.expand(); try { if (tg.isVersionAtLeast && tg.isVersionAtLeast("7.7")) tg.disableVerticalSwipes(); } catch (e) {} }
@@ -8,167 +9,556 @@ const $ = (id) => document.getElementById(id);
 
 const Q = new URLSearchParams(location.search);
 const startParam = (tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param) || "";
-let ROOM = Q.get("room") || (/^room_[a-z0-9]{6,16}$/.test(startParam) ? startParam.slice(5) : "");
+const rnd = (n) => Array.from({ length: n }, () => "abcdefghjkmnpqrstuvwxyz23456789"[Math.floor(Math.random() * 31)]).join("");
+let ROOM = Q.get("room") || (/^room_[a-z0-9]{6,16}$/.test(startParam) ? startParam.slice(5) : "") || rnd(8);
 const WS_URL = Q.get("ws") || "";
 const BOT = Q.get("b") || "";
-const ASPECT = 3 / 4;                         // ширина / высота доски
-
-const rnd = (n) => Array.from({ length: n }, () => "abcdefghjkmnpqrstuvwxyz23456789"[Math.floor(Math.random() * 31)]).join("");
-if (!ROOM) ROOM = rnd(8);
 try { history.replaceState(null, "", `?room=${ROOM}${WS_URL ? "&ws=" + encodeURIComponent(WS_URL) : ""}${BOT ? "&b=" + BOT : ""}`); } catch (e) {}
 
 function showMsg(text) { const m = $("msg"); m.textContent = text; m.style.display = text ? "flex" : "none"; }
-function toast(text) { const t = $("toast"); t.textContent = text; t.classList.add("show"); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove("show"), 1800); }
+function toast(text, ms = 2200) { const t = $("toast"); t.textContent = text; t.classList.add("show"); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove("show"), ms); }
 
-// ---------------------------------------------------------------- холст
-const cv = $("cv"), ctx = cv.getContext("2d"), wrap = $("wrap"), stage = $("stage");
-let strokes = new Map();                      // id → { c, w, p:[[x,y]...] }
-let W = 0, H = 0;
+// ---------------------------------------------------------------- состояние
+const cv = $("cv"), ctx = cv.getContext("2d");
+let dpr = 1, VW = 0, VH = 0;
+const cam = { x: -200, y: -150, z: 1 };
+const objs = new Map();                       // id → объект (порядок = порядок наложения)
+let selected = null;                          // id выделенного объекта
+let tool = "select", color = "#222222", brush = 4;
+let hist = [], redo = [];                     // история моих действий {op:"add"|"del", obj}
+const cursors = new Map();                    // who → {x, y, c, t}
+let dirty = true;
+const invalidate = () => { dirty = true; };
 
-function fit() {
-  const aw = stage.clientWidth - 16, ah = stage.clientHeight - 16;
-  let w = aw, h = aw / ASPECT;
-  if (h > ah) { h = ah; w = ah * ASPECT; }
-  wrap.style.width = w + "px"; wrap.style.height = h + "px";
-  const dpr = window.devicePixelRatio || 1;
-  cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
-  W = cv.width; H = cv.height;
-  redraw();
-}
-function line(s, from) {
-  const p = s.p; if (!p.length) return;
-  ctx.strokeStyle = s.c; ctx.fillStyle = s.c; ctx.lineWidth = s.w * (W / 1000) * 1.0; ctx.lineCap = "round"; ctx.lineJoin = "round";
-  if (p.length === 1) { ctx.beginPath(); ctx.arc(p[0][0] * W, p[0][1] * H, ctx.lineWidth / 2, 0, 7); ctx.fill(); return; }
-  ctx.beginPath();
-  const i0 = Math.max(0, from - 1);
-  ctx.moveTo(p[i0][0] * W, p[i0][1] * H);
-  for (let i = i0 + 1; i < p.length; i++) ctx.lineTo(p[i][0] * W, p[i][1] * H);
-  ctx.stroke();
-}
-function redraw() { ctx.clearRect(0, 0, W, H); strokes.forEach((s) => line(s, 0)); }
-function addPoints(id, c, w, pts) {
-  let s = strokes.get(id);
-  if (!s) { s = { c, w, p: [] }; strokes.set(id, s); }
-  const from = s.p.length; s.p.push(...pts);
-  line(s, from);
-  return s;
-}
+const screenToWorld = (sx, sy) => [sx / cam.z + cam.x, sy / cam.z + cam.y];
+const worldToScreen = (wx, wy) => [(wx - cam.x) * cam.z, (wy - cam.y) * cam.z];
+const newId = () => rnd(10);
 
 // ---------------------------------------------------------------- связь
-let ws = null, myName = "", online = false, wantOpen = true;
-const myId = () => rnd(10);
-
-function send(m) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(m)); }
+let ws = null, online = false, wantOpen = true, myName = "Гость", firstState = true;
+const send = (m) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(m)); };
 
 function connect() {
-  if (!WS_URL) { showMsg("Сервер доски не подключён. Попроси того, кто настраивает бота, указать адрес сервера (BOARD_WS в config.py)."); return; }
+  if (!WS_URL) { showMsg("Сервер доски не подключён. Открой доску через бота: команда /together."); return; }
   const user = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
+  if (user) myName = user.first_name;
   ws = new WebSocket(`${WS_URL}${WS_URL.includes("?") ? "&" : "?"}room=${ROOM}`);
-  ws.onopen = () => send({ t: "hello", name: user ? user.first_name : "Гость", init: (tg && tg.initData) || "" });
+  ws.onopen = () => send({ t: "hello", name: myName, init: (tg && tg.initData) || "" });
   ws.onmessage = (ev) => {
     let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
-    if (m.t === "state") {
-      online = true; showMsg("");
-      strokes = new Map(); m.strokes.forEach((s) => strokes.set(s.id, { c: s.c, w: s.w, p: s.p }));
-      redraw();
-      if (document.activeElement !== $("task")) $("task").value = m.task || "";
-    } else if (m.t === "seg") addPoints(m.id, m.c, m.w, m.p);
-    else if (m.t === "del") { strokes.delete(m.id); redraw(); }
-    else if (m.t === "clear") { strokes.clear(); redraw(); toast("Доску очистили"); }
-    else if (m.t === "task") { if (document.activeElement !== $("task")) $("task").value = m.text; else pendingTask = m.text; }
-    else if (m.t === "peers") setPeers(m.n, m.names);
-    else if (m.t === "cur") showCursor(m);
-    else if (m.t === "full") { wantOpen = false; showMsg("В этой комнате уже сидят четверо. Создай новую через бота."); }
-    else if (m.t === "denied") { wantOpen = false; showMsg("Не удалось проверить, что ты из Telegram. Открой доску через бота."); }
+    switch (m.t) {
+      case "state":
+        online = true; showMsg("");
+        objs.clear(); m.objs.forEach((o) => objs.set(o.id, o));
+        if (firstState && m.objs.length) fitAll();
+        firstState = false;
+        invalidate(); break;
+      case "seg": {
+        let s = objs.get(m.id);
+        if (!s) { s = { id: m.id, type: "stroke", c: m.c, w: m.w, p: [] }; objs.set(m.id, s); }
+        s.p.push(...m.p); invalidate(); break;
+      }
+      case "add": objs.set(m.o.id, m.o); if (m.focus) focusOn(m.o); invalidate(); break;
+      case "upd": { const o = objs.get(m.id); if (o) { Object.assign(o, m); delete o.t; invalidate(); } break; }
+      case "mv": { const o = objs.get(m.id); if (o && o.p) { o.p = o.p.map(([x, y]) => [x + m.dx, y + m.dy]); invalidate(); } break; }
+      case "del": objs.delete(m.id); if (selected === m.id) selected = null; invalidate(); break;
+      case "clear": objs.clear(); selected = null; hist = []; redo = []; syncButtons(); invalidate(); toast("Доску очистили"); break;
+      case "cur": cursors.set(m.who, { x: m.x, y: m.y, c: m.c, t: Date.now() }); invalidate(); break;
+      case "peers": setPeers(m.n, m.names); break;
+      case "fipi_err": toast(`Задача с кодом ${m.code || "…"} не найдена 🙈`); break;
+      case "full": wantOpen = false; showMsg("В этой комнате уже сидят четверо. Создай новую через бота."); break;
+      case "denied": wantOpen = false; showMsg("Не удалось проверить, что ты из Telegram. Открой доску через бота."); break;
+    }
   };
-  ws.onclose = () => {
-    online = false; setPeers(0, []);
-    if (wantOpen) setTimeout(connect, 1500);
-  };
+  ws.onclose = () => { online = false; setPeers(0, []); if (wantOpen) setTimeout(connect, 1500); };
   ws.onerror = () => {};
 }
-let pendingTask = null;
-
 function setPeers(n, names) {
   const p = $("peers");
   p.classList.toggle("on", n >= 2);
-  p.textContent = !online && !n ? "нет связи…" : n >= 2 ? `👥 ${n} · ${names.filter((x) => x !== myName).join(", ") || "друг"} здесь` : "ты один — позови друга";
+  const others = names.filter((x, i) => !(x === myName && names.indexOf(x) === i));
+  p.textContent = !online ? "нет связи…" : n >= 2 ? `👥 ${others.join(", ") || "друг"} на доске` : "ты один — позови друга";
 }
 
-// ---------------------------------------------------------------- рисование
-let color = "#222222", width = 4, tool = "pen";
-const tools = $("tools");
-tools.querySelectorAll(".sw").forEach((b) => b.addEventListener("click", () => {
-  tools.querySelectorAll(".sw").forEach((x) => x.classList.remove("on")); b.classList.add("on");
-  color = b.dataset.c; if (tool === "eraser") selectWidth(tools.querySelector(".tool[data-w='4']"));
-}));
-function selectWidth(b) {
-  tools.querySelectorAll(".tool[data-w]").forEach((x) => x.classList.remove("on")); b.classList.add("on");
-  width = +b.dataset.w; tool = b.id === "eraser" ? "eraser" : "pen";
+// ---------------------------------------------------------------- рисование на холсте
+function resize() {
+  dpr = window.devicePixelRatio || 1;
+  VW = window.innerWidth; VH = window.innerHeight;
+  cv.width = Math.round(VW * dpr); cv.height = Math.round(VH * dpr);
+  invalidate();
 }
-tools.querySelectorAll(".tool[data-w]").forEach((b) => b.addEventListener("click", () => selectWidth(b)));
-$("undo").addEventListener("click", () => send({ t: "undo" }));
-$("clear").addEventListener("click", () => {
-  if (!strokes.size) return;
-  if (tg && tg.showConfirm) tg.showConfirm("Очистить доску у обоих?", (ok) => ok && send({ t: "clear" }));
-  else if (confirm("Очистить доску у обоих?")) send({ t: "clear" });
-});
+const imgCache = new Map();
+function imageOf(o) {
+  let im = imgCache.get(o.id);
+  if (!im || im.srcKey !== o.src) {
+    im = new Image(); im.srcKey = o.src; im.onload = invalidate; im.src = o.src; imgCache.set(o.id, im);
+  }
+  return im;
+}
+const textFont = (o) => `${o.size}px system-ui, "Segoe UI", Roboto, sans-serif`;
+function textBox(o) {
+  ctx.save(); ctx.font = textFont(o);
+  const lines = (o.text || "").split("\n");
+  const w = Math.max(...lines.map((l) => ctx.measureText(l).width), o.size * 0.6);
+  ctx.restore();
+  return { x: o.x, y: o.y, w, h: lines.length * o.size * 1.2, lines };
+}
+function bbox(o) {
+  if (o.type === "image") return { x: o.x, y: o.y, w: o.w, h: o.h };
+  if (o.type === "text") return textBox(o);
+  let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+  for (const [x, y] of o.p) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+  const r = o.w / 2;
+  return { x: x0 - r, y: y0 - r, w: x1 - x0 + o.w, h: y1 - y0 + o.w };
+}
 
-let cur = null, buf = [], flushT = 0, lastCur = 0;
-const pos = (e) => {
-  const r = cv.getBoundingClientRect();
-  return [Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), Math.min(1, Math.max(0, (e.clientY - r.top) / r.height))];
+function drawStroke(o) {
+  const p = o.p; if (!p.length) return;
+  ctx.strokeStyle = ctx.fillStyle = o.c; ctx.lineWidth = o.w; ctx.lineCap = "round"; ctx.lineJoin = "round";
+  if (p.length < 3) {
+    if (p.length === 1 || (p[0][0] === p[1][0] && p[0][1] === p[1][1])) { ctx.beginPath(); ctx.arc(p[0][0], p[0][1], o.w / 2, 0, 7); ctx.fill(); return; }
+    ctx.beginPath(); ctx.moveTo(p[0][0], p[0][1]); ctx.lineTo(p[1][0], p[1][1]); ctx.stroke(); return;
+  }
+  ctx.beginPath(); ctx.moveTo(p[0][0], p[0][1]);
+  for (let i = 1; i < p.length - 1; i++) {            // сглаживание: кривые через середины отрезков
+    const mx = (p[i][0] + p[i + 1][0]) / 2, my = (p[i][1] + p[i + 1][1]) / 2;
+    ctx.quadraticCurveTo(p[i][0], p[i][1], mx, my);
+  }
+  ctx.lineTo(p[p.length - 1][0], p[p.length - 1][1]);
+  ctx.stroke();
+}
+
+function draw() {
+  dirty = false;
+  const dark = window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = dark ? "#262a31" : "#ffffff"; ctx.fillRect(0, 0, cv.width, cv.height);
+  const k = cam.z * dpr;
+  ctx.setTransform(k, 0, 0, k, -cam.x * k, -cam.y * k);
+
+  // точечная сетка, как в Miro
+  let step = 40; while (step * cam.z < 16) step *= 5;
+  ctx.fillStyle = dark ? "#3a3f48" : "#d3d7de";
+  const x0 = Math.floor(cam.x / step) * step, y0 = Math.floor(cam.y / step) * step;
+  const d = Math.max(1.4 / cam.z, 1);
+  for (let x = x0; x < cam.x + VW / cam.z; x += step) for (let y = y0; y < cam.y + VH / cam.z; y += step) ctx.fillRect(x - d / 2, y - d / 2, d, d);
+
+  const vx0 = cam.x - 50, vy0 = cam.y - 50, vx1 = cam.x + VW / cam.z + 50, vy1 = cam.y + VH / cam.z + 50;
+  objs.forEach((o) => {
+    if (o.type === "stroke") {
+      const b = bbox(o); if (b.x > vx1 || b.y > vy1 || b.x + b.w < vx0 || b.y + b.h < vy0) return;
+      drawStroke(o);
+    } else if (o.type === "image") {
+      if (o.x > vx1 || o.y > vy1 || o.x + o.w < vx0 || o.y + o.h < vy0) return;
+      const im = imageOf(o);
+      if (im.complete && im.naturalWidth) ctx.drawImage(im, o.x, o.y, o.w, o.h);
+      else { ctx.fillStyle = "#e9ecf0"; ctx.fillRect(o.x, o.y, o.w, o.h); }
+    } else if (o.type === "text") {
+      ctx.fillStyle = o.c; ctx.font = textFont(o); ctx.textBaseline = "top";
+      (o.text || "").split("\n").forEach((l, i) => ctx.fillText(l, o.x, o.y + i * o.size * 1.2));
+    }
+  });
+
+  // выделение
+  const so = selected && objs.get(selected);
+  if (so) {
+    const b = bbox(so), pad = 6 / cam.z;
+    ctx.strokeStyle = "#1c8ef6"; ctx.lineWidth = 2 / cam.z; ctx.setLineDash([6 / cam.z, 4 / cam.z]);
+    ctx.strokeRect(b.x - pad, b.y - pad, b.w + 2 * pad, b.h + 2 * pad); ctx.setLineDash([]);
+    if (so.type !== "stroke") {
+      const r = 7 / cam.z;
+      ctx.fillStyle = "#fff"; ctx.strokeStyle = "#1c8ef6"; ctx.lineWidth = 2 / cam.z;
+      ctx.beginPath(); ctx.rect(b.x + b.w + pad - r, b.y + b.h + pad - r, 2 * r, 2 * r); ctx.fill(); ctx.stroke();
+    }
+  }
+
+  // курсоры друзей — в экранных координатах
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const now = Date.now();
+  cursors.forEach((c, who) => {
+    if (now - c.t > 3500) { cursors.delete(who); return; }
+    const [sx, sy] = worldToScreen(c.x, c.y);
+    ctx.fillStyle = c.c;
+    ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx + 5, sy + 17); ctx.lineTo(sx + 9, sy + 11); ctx.lineTo(sx + 16, sy + 9); ctx.closePath(); ctx.fill();
+    ctx.font = "700 12px system-ui"; ctx.textBaseline = "middle";
+    const w = ctx.measureText(who).width + 12;
+    ctx.beginPath(); ctx.roundRect ? ctx.roundRect(sx + 14, sy + 14, w, 20, 6) : ctx.rect(sx + 14, sy + 14, w, 20); ctx.fill();
+    ctx.fillStyle = "#fff"; ctx.fillText(who, sx + 20, sy + 24);
+    dirty = true;                               // пока курсор виден — перерисовываем, чтобы он исчез вовремя
+  });
+  $("zv").textContent = Math.round(cam.z * 100) + "%";
+}
+(function loop() { if (dirty) draw(); requestAnimationFrame(loop); })();
+
+// ---------------------------------------------------------------- камера
+function zoomAt(sx, sy, f) {
+  const z = Math.min(8, Math.max(0.05, cam.z * f));
+  const [wx, wy] = screenToWorld(sx, sy);
+  cam.z = z; cam.x = wx - sx / z; cam.y = wy - sy / z; invalidate();
+}
+function fitBox(b, animate) {
+  const pad = 90, z = Math.min(1.5, Math.max(0.05, Math.min((VW - 2 * pad - 70) / b.w, (VH - 2 * pad) / b.h)));
+  cam.z = z; cam.x = b.x + b.w / 2 - VW / 2 / z; cam.y = b.y + b.h / 2 - VH / 2 / z; invalidate();
+}
+function fitAll() {
+  if (!objs.size) { cam.z = 1; cam.x = -200; cam.y = -150; invalidate(); return; }
+  let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+  objs.forEach((o) => { const b = bbox(o); x0 = Math.min(x0, b.x); y0 = Math.min(y0, b.y); x1 = Math.max(x1, b.x + b.w); y1 = Math.max(y1, b.y + b.h); });
+  fitBox({ x: x0, y: y0, w: Math.max(x1 - x0, 50), h: Math.max(y1 - y0, 50) });
+}
+function focusOn(o) { const b = bbox(o); fitBox(b); }
+$("zin").onclick = () => zoomAt(VW / 2, VH / 2, 1.25);
+$("zout").onclick = () => zoomAt(VW / 2, VH / 2, 0.8);
+$("zv").onclick = () => zoomAt(VW / 2, VH / 2, 1 / cam.z);
+$("fit").onclick = () => fitAll();
+
+cv.addEventListener("wheel", (e) => {
+  e.preventDefault();
+  if (e.ctrlKey || e.metaKey) zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * 0.01));             // щипок на тачпаде / Ctrl+колесо
+  else if (e.deltaX === 0 && Number.isInteger(e.deltaY) && Math.abs(e.deltaY) >= 40 && e.deltaMode === 0) zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * 0.0012));   // колесо мыши
+  else { cam.x += e.deltaX / cam.z; cam.y += e.deltaY / cam.z; invalidate(); }                      // два пальца на тачпаде
+}, { passive: false });
+
+// ---------------------------------------------------------------- история (отмена / повтор)
+function syncButtons() { $("undo").disabled = !hist.length; $("redo").disabled = !redo.length; }
+function record(op, obj) { hist.push({ op, obj }); if (hist.length > 200) hist.shift(); redo = []; syncButtons(); }
+function addObj(o, rec = true) {
+  objs.set(o.id, o); send({ t: "add", o }); if (rec) record("add", o); invalidate();
+}
+function delObj(id, rec = true) {
+  const o = objs.get(id); if (!o) return;
+  objs.delete(id); send({ t: "del", id }); if (selected === id) selected = null;
+  if (rec) record("del", o); invalidate();
+}
+function undo() {
+  const h = hist.pop(); if (!h) return;
+  if (h.op === "add") { objs.delete(h.obj.id); send({ t: "del", id: h.obj.id }); if (selected === h.obj.id) selected = null; }
+  else { objs.set(h.obj.id, h.obj); send({ t: "add", o: h.obj }); }
+  redo.push(h); syncButtons(); invalidate();
+}
+function redoIt() {
+  const h = redo.pop(); if (!h) return;
+  if (h.op === "add") { objs.set(h.obj.id, h.obj); send({ t: "add", o: h.obj }); }
+  else { objs.delete(h.obj.id); send({ t: "del", id: h.obj.id }); if (selected === h.obj.id) selected = null; }
+  hist.push(h); syncButtons(); invalidate();
+}
+$("undo").onclick = undo; $("redo").onclick = redoIt;
+$("clear").onclick = () => {
+  if (!objs.size) return;
+  const go = () => { objs.clear(); selected = null; hist = []; redo = []; syncButtons(); send({ t: "clear" }); invalidate(); };
+  if (tg && tg.showConfirm) tg.showConfirm("Очистить всю доску у обоих?", (ok) => ok && go());
+  else if (confirm("Очистить всю доску у обоих?")) go();
 };
-function flush() {
-  if (!cur || !buf.length) return;
-  send({ t: "seg", id: cur.id, c: cur.c, w: cur.w, p: buf }); buf = [];
+
+// ---------------------------------------------------------------- инструменты
+const tbs = document.querySelectorAll("#tools [data-tool]");
+function setTool(t) {
+  tool = t; tbs.forEach((b) => b.classList.toggle("on", b.dataset.tool === t));
+  if (t !== "select") { selected = null; invalidate(); }
+  cv.style.cursor = { select: "default", hand: "grab", pen: "crosshair", eraser: "cell", text: "text" }[t] || "default";
+}
+tbs.forEach((b) => b.addEventListener("click", () => setTool(b.dataset.tool)));
+function setColor(c) {
+  color = c; document.querySelectorAll("#tools .sw").forEach((x) => x.classList.toggle("on", x.dataset.c === c));
+  const so = selected && objs.get(selected);
+  if (so && so.type === "text") { so.c = c; send({ t: "upd", id: so.id, c }); invalidate(); }
+}
+document.querySelectorAll("#tools .sw").forEach((s) => s.addEventListener("click", () => setColor(s.dataset.c)));
+function setBrush(w) { brush = w; document.querySelectorAll("#wd i").forEach((x) => x.classList.toggle("on", +x.dataset.w === w)); }
+document.querySelectorAll("#wd i").forEach((i) => i.addEventListener("click", () => setBrush(+i.dataset.w)));
+
+// ---------------------------------------------------------------- указатель
+const ptrs = new Map();                       // активные касания/мышь: id → {x, y}
+let gesture = null;                           // щипок двумя пальцами
+let action = null;                            // текущее действие одним указателем
+let spaceDown = false, lastCur = 0;
+
+const distSeg = (px, py, ax, ay, bx, by) => {
+  const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
+  let t = l2 ? ((px - ax) * dx + (py - ay) * dy) / l2 : 0; t = Math.max(0, Math.min(1, t));
+  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+};
+function strokeHit(s, wx, wy, r) {
+  const p = s.p, rr = r + s.w / 2;
+  if (p.length === 1) return Math.hypot(wx - p[0][0], wy - p[0][1]) <= rr;
+  for (let i = 1; i < p.length; i++) if (distSeg(wx, wy, p[i - 1][0], p[i - 1][1], p[i][0], p[i][1]) <= rr) return true;
+  return false;
+}
+function hitTest(wx, wy) {
+  const r = 6 / cam.z, arr = [...objs.values()];
+  for (let i = arr.length - 1; i >= 0; i--) {
+    const o = arr[i];
+    if (o.type === "stroke") { if (strokeHit(o, wx, wy, r)) return o; }
+    else { const b = bbox(o); if (wx >= b.x && wx <= b.x + b.w && wy >= b.y && wy <= b.y + b.h) return o; }
+  }
+  return null;
+}
+function onHandle(wx, wy) {
+  const so = selected && objs.get(selected); if (!so || so.type === "stroke") return false;
+  const b = bbox(so), pad = 6 / cam.z, r = 12 / cam.z;
+  return Math.abs(wx - (b.x + b.w + pad)) <= r && Math.abs(wy - (b.y + b.h + pad)) <= r;
+}
+function eraseAt(wx, wy) {
+  const r = 9 / cam.z;
+  [...objs.values()].forEach((o) => { if (o.type === "stroke" && strokeHit(o, wx, wy, r)) delObj(o.id); });
+}
+
+function startGesture() {
+  const [a, b] = [...ptrs.values()];
+  gesture = { d: Math.hypot(a.x - b.x, a.y - b.y), cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2 };
 }
 cv.addEventListener("pointerdown", (e) => {
-  if (e.button > 0 || !online) return;
+  if (e.button > 0 && e.button !== 1) return;
   e.preventDefault(); cv.setPointerCapture(e.pointerId);
-  const c = tool === "eraser" ? "#ffffff" : color;
-  cur = { id: myId(), c, w: width };
-  const p = pos(e); buf = [p]; addPoints(cur.id, c, width, [p]);
-  flushT = setInterval(flush, 60);
-});
-cv.addEventListener("pointermove", (e) => {
-  if (!cur) return;
-  e.preventDefault();
-  const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
-  const pts = (evs.length ? evs : [e]).map(pos);
-  buf.push(...pts); addPoints(cur.id, cur.c, cur.w, pts);
-  const now = Date.now();
-  if (now - lastCur > 80) { lastCur = now; send({ t: "cur", x: pts[pts.length - 1][0], y: pts[pts.length - 1][1] }); }
-});
-const end = () => { if (!cur) return; clearInterval(flushT); flush(); cur = null; };
-cv.addEventListener("pointerup", end); cv.addEventListener("pointercancel", end);
+  if (editing && tool !== "text") commitText();
+  ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (ptrs.size === 2) {                       // второй палец: отменяем начатое рисование и переходим к щипку
+    if (action && action.kind === "pen") { cancelStroke(); }
+    action = null; startGesture(); return;
+  }
+  if (ptrs.size > 2) return;
+  if (!online && tool !== "hand") { /* без связи тоже даём смотреть доску */ }
+  const [wx, wy] = screenToWorld(e.clientX, e.clientY);
+  const pan = tool === "hand" || spaceDown || e.button === 1;
+  if (pan) { action = { kind: "pan", sx: e.clientX, sy: e.clientY, cx: cam.x, cy: cam.y }; cv.style.cursor = "grabbing"; return; }
 
-// курсор друга
-const curEls = new Map();
-function showCursor(m) {
-  let el = curEls.get(m.who);
-  if (!el) { el = document.createElement("div"); el.className = "cur"; el.innerHTML = `<i></i>`; el.firstChild.textContent = m.who; wrap.appendChild(el); curEls.set(m.who, el); }
-  el.style.left = m.x * 100 + "%"; el.style.top = m.y * 100 + "%"; el.style.display = "block";
-  clearTimeout(el.h); el.h = setTimeout(() => { el.style.display = "none"; }, 1800);
+  if (tool === "pen") {
+    if (!online) { toast("Нет связи с сервером"); return; }
+    const o = { id: newId(), type: "stroke", c: color, w: Math.max(0.5, +(brush / cam.z).toFixed(2)), p: [[+wx.toFixed(1), +wy.toFixed(1)]] };
+    objs.set(o.id, o);
+    action = { kind: "pen", o, buf: [o.p[0]], timer: setInterval(flushPen, 60) };
+    invalidate();
+  } else if (tool === "eraser") {
+    action = { kind: "erase", lx: e.clientX, ly: e.clientY }; eraseAt(wx, wy);
+  } else if (tool === "text") {
+    const hit = hitTest(wx, wy);
+    if (hit && hit.type === "text") editText(hit); else editText(null, wx, wy);
+    action = null;
+  } else {                                     // select
+    if (onHandle(wx, wy)) {
+      const o = objs.get(selected), b = bbox(o);
+      action = { kind: "resize", o, b0: b, o0: { ...o }, ratio: b.w / b.h };
+      return;
+    }
+    const hit = hitTest(wx, wy);
+    if (hit) {
+      selected = hit.id; action = { kind: "move", o: hit, lx: wx, ly: wy, acc: [0, 0], last: 0, moved: false };
+      if (hit.type === "text" && e.detail === 2) { action = null; editText(hit); }
+    } else { selected = null; action = { kind: "pan", sx: e.clientX, sy: e.clientY, cx: cam.x, cy: cam.y }; }
+    invalidate();
+  }
+});
+function flushPen() {
+  if (!action || action.kind !== "pen" || !action.buf.length) return;
+  send({ t: "seg", id: action.o.id, c: action.o.c, w: action.o.w, p: action.buf }); action.buf = [];
+}
+function cancelStroke() {
+  if (!action || action.kind !== "pen") return;
+  clearInterval(action.timer); flushPen();
+  delObj(action.o.id, false); action = null;
+}
+cv.addEventListener("pointermove", (e) => {
+  const p = ptrs.get(e.pointerId);
+  const [wx, wy] = screenToWorld(e.clientX, e.clientY);
+  const now = Date.now();
+  if (online && now - lastCur > 70) { lastCur = now; send({ t: "cur", x: +wx.toFixed(1), y: +wy.toFixed(1), c: color }); }
+  if (!p) return;
+  p.x = e.clientX; p.y = e.clientY;
+  if (gesture && ptrs.size >= 2) {
+    const [a, b] = [...ptrs.values()], d = Math.hypot(a.x - b.x, a.y - b.y), cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2;
+    cam.x -= (cx - gesture.cx) / cam.z; cam.y -= (cy - gesture.cy) / cam.z;
+    if (gesture.d > 0) zoomAt(cx, cy, d / gesture.d);
+    gesture = { d, cx, cy }; invalidate(); return;
+  }
+  if (!action) return;
+  e.preventDefault();
+  switch (action.kind) {
+    case "pan": cam.x = action.cx - (e.clientX - action.sx) / cam.z; cam.y = action.cy - (e.clientY - action.sy) / cam.z; invalidate(); break;
+    case "pen": {
+      const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
+      for (const ev of (evs.length ? evs : [e])) {
+        const [x, y] = screenToWorld(ev.clientX, ev.clientY), pt = [+x.toFixed(1), +y.toFixed(1)];
+        action.o.p.push(pt); action.buf.push(pt);
+      }
+      invalidate(); break;
+    }
+    case "erase": {
+      const dx = e.clientX - action.lx, dy = e.clientY - action.ly, n = Math.max(1, Math.ceil(Math.hypot(dx, dy) / 6));
+      for (let i = 1; i <= n; i++) { const [x, y] = screenToWorld(action.lx + dx * i / n, action.ly + dy * i / n); eraseAt(x, y); }
+      action.lx = e.clientX; action.ly = e.clientY; break;
+    }
+    case "move": {
+      const ddx = wx - action.lx, ddy = wy - action.ly; action.lx = wx; action.ly = wy;
+      const o = action.o; action.moved = true;
+      if (o.type === "stroke") { o.p = o.p.map(([x, y]) => [x + ddx, y + ddy]); action.acc[0] += ddx; action.acc[1] += ddy; }
+      else { o.x += ddx; o.y += ddy; }
+      if (now - action.last > 50) flushMove(); invalidate(); break;
+    }
+    case "resize": {
+      const o = action.o, b0 = action.b0;
+      const nw = Math.max(40, wx - b0.x);
+      if (o.type === "image") { o.w = nw; o.h = nw / action.ratio; }
+      else { o.size = Math.max(8, action.o0.size * nw / Math.max(20, b0.w)); }
+      if (now - action.last > 60) { action.last = now; sendProps(o); }
+      invalidate(); break;
+    }
+  }
+});
+function flushMove() {
+  if (!action || action.kind !== "move") return;
+  const o = action.o; action.last = Date.now();
+  if (o.type === "stroke") { if (action.acc[0] || action.acc[1]) { send({ t: "mv", id: o.id, dx: +action.acc[0].toFixed(1), dy: +action.acc[1].toFixed(1) }); action.acc = [0, 0]; } }
+  else send({ t: "upd", id: o.id, x: +o.x.toFixed(1), y: +o.y.toFixed(1) });
+}
+function sendProps(o) {
+  if (o.type === "image") send({ t: "upd", id: o.id, x: o.x, y: o.y, w: +o.w.toFixed(1), h: +o.h.toFixed(1) });
+  else send({ t: "upd", id: o.id, size: +o.size.toFixed(1) });
+}
+function endPointer(e) {
+  ptrs.delete(e.pointerId);
+  if (ptrs.size < 2) gesture = null;
+  if (!action) return;
+  if (action.kind === "pen") {
+    clearInterval(action.timer); flushPen();
+    if (online) record("add", action.o); else objs.delete(action.o.id);
+  } else if (action.kind === "move") flushMove();
+  else if (action.kind === "resize") sendProps(action.o);
+  else if (action.kind === "pan") cv.style.cursor = tool === "hand" ? "grab" : tool === "select" ? "default" : cv.style.cursor;
+  action = null; invalidate();
+}
+cv.addEventListener("pointerup", endPointer);
+cv.addEventListener("pointercancel", endPointer);
+cv.addEventListener("dblclick", (e) => {
+  const [wx, wy] = screenToWorld(e.clientX, e.clientY), hit = hitTest(wx, wy);
+  if (hit && hit.type === "text") editText(hit);
+  else if (!hit && tool === "select") editText(null, wx, wy);
+});
+
+// ---------------------------------------------------------------- текст
+const txt = $("txt");
+let editing = null;                           // {o|null, wx, wy}
+function editText(o, wx, wy) {
+  if (editing) commitText();
+  editing = { o, wx: o ? o.x : wx, wy: o ? o.y : wy, size: o ? o.size : Math.max(8, Math.round(26 / cam.z)) };
+  if (o) { o._hidden = true; }
+  const [sx, sy] = worldToScreen(editing.wx, editing.wy);
+  const fs = editing.size * cam.z;
+  Object.assign(txt.style, { display: "block", left: sx + "px", top: sy + "px", fontSize: fs + "px", color: o ? o.c : color, minWidth: Math.max(120, fs * 6) + "px", height: fs * 1.3 + "px" });
+  txt.value = o ? o.text : "";
+  fitTxt(); txt.focus(); txt.select();
+  if (o) { const keep = o.text; o.text = ""; editing.keep = keep; invalidate(); }
+}
+function fitTxt() { txt.style.height = "auto"; txt.style.height = txt.scrollHeight + "px"; txt.style.width = Math.max(parseFloat(txt.style.minWidth), 40) + "px"; }
+txt.addEventListener("input", fitTxt);
+txt.addEventListener("keydown", (e) => { if (e.key === "Escape" || (e.key === "Enter" && (e.ctrlKey || e.metaKey))) { e.preventDefault(); commitText(); } e.stopPropagation(); });
+txt.addEventListener("blur", () => setTimeout(commitText, 0));
+function commitText() {
+  if (!editing) return;
+  const ed = editing; editing = null; txt.style.display = "none";
+  const value = txt.value.replace(/\s+$/, "");
+  if (ed.o) {
+    const o = ed.o; delete o._hidden;
+    if (!value) { o.text = ed.keep; delObj(o.id); }
+    else { o.text = value; if (value !== ed.keep) send({ t: "upd", id: o.id, text: value }); }
+  } else if (value) {
+    addObj({ id: newId(), type: "text", x: ed.wx, y: ed.wy, text: value, size: ed.size, c: color });
+  }
+  invalidate();
 }
 
-// условие задачи
-let taskT = 0;
-$("task").addEventListener("input", () => { clearTimeout(taskT); taskT = setTimeout(() => send({ t: "task", text: $("task").value }), 300); });
-$("task").addEventListener("blur", () => { if (pendingTask !== null) { $("task").value = pendingTask; pendingTask = null; } });
+// ---------------------------------------------------------------- картинки
+function placeImage(dataUrl, nw, nh, at) {
+  const maxW = Math.min(nw, (VW * 0.6) / cam.z), w = Math.max(60, maxW), h = w * nh / nw;
+  const [cx, cy] = at || screenToWorld(VW / 2, VH / 2);
+  const o = { id: newId(), type: "image", x: +(cx - w / 2).toFixed(1), y: +(cy - h / 2).toFixed(1), w: +w.toFixed(1), h: +h.toFixed(1), src: dataUrl };
+  addObj(o); selected = o.id; setTool("select"); selected = o.id; invalidate();
+}
+function addImageFile(file, at) {
+  if (!file || !file.type.startsWith("image/")) return;
+  if (!online) { toast("Нет связи с сервером"); return; }
+  const url = URL.createObjectURL(file), im = new Image();
+  im.onload = () => {
+    let max = 1600, q = 0.85, data;
+    for (let i = 0; i < 4; i++) {
+      const sc = Math.min(1, max / Math.max(im.naturalWidth, im.naturalHeight));
+      const c = document.createElement("canvas"); c.width = Math.round(im.naturalWidth * sc); c.height = Math.round(im.naturalHeight * sc);
+      const g = c.getContext("2d"); g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height); g.drawImage(im, 0, 0, c.width, c.height);
+      data = c.toDataURL("image/jpeg", q);
+      if (data.length < 2_300_000) { placeImage(data, c.width, c.height, at); break; }
+      max = Math.round(max * 0.7); q -= 0.08;
+    }
+    URL.revokeObjectURL(url);
+  };
+  im.onerror = () => { URL.revokeObjectURL(url); toast("Не удалось открыть картинку"); };
+  im.src = url;
+}
+$("imgBtn").onclick = () => $("file").click();
+$("file").onchange = (e) => { [...e.target.files].forEach((f) => addImageFile(f)); e.target.value = ""; };
+window.addEventListener("paste", (e) => {
+  if (document.activeElement && /INPUT|TEXTAREA/.test(document.activeElement.tagName)) return;
+  const f = [...(e.clipboardData ? e.clipboardData.files : [])].find((x) => x.type.startsWith("image/"));
+  if (f) { e.preventDefault(); addImageFile(f); }
+});
+window.addEventListener("dragover", (e) => e.preventDefault());
+window.addEventListener("drop", (e) => {
+  e.preventDefault();
+  [...(e.dataTransfer ? e.dataTransfer.files : [])].forEach((f) => addImageFile(f, screenToWorld(e.clientX, e.clientY)));
+});
 
-// приглашение
-function inviteLink() { return BOT ? `https://t.me/${BOT}?start=room_${ROOM}` : location.href; }
-$("invite").addEventListener("click", () => {
+// ---------------------------------------------------------------- код ФИПИ
+function loadFipi() {
+  const code = $("code").value.trim();
+  if (!code) { $("code").focus(); return; }
+  if (!online) { toast("Нет связи с сервером"); return; }
+  const [cx, cy] = screenToWorld(VW / 2, VH / 2);
+  send({ t: "fipi", code, x: +cx.toFixed(1), y: +cy.toFixed(1) });
+  $("code").value = ""; $("code").blur(); toast(`Загружаю задачу ${code.toUpperCase()}…`, 1500);
+}
+$("load").onclick = loadFipi;
+$("code").addEventListener("keydown", (e) => { if (e.key === "Enter") loadFipi(); if (e.key === "Escape") $("code").blur(); e.stopPropagation(); });
+
+// ---------------------------------------------------------------- приглашение, помощь
+const inviteLink = () => (BOT ? `https://t.me/${BOT}?start=room_${ROOM}` : location.href);
+$("invite").onclick = () => {
   const link = inviteLink();
   if (tg && tg.openTelegramLink) tg.openTelegramLink(`https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent("Давай решать задачи по физике вместе! 🧠")}`);
   else if (navigator.clipboard) navigator.clipboard.writeText(link).then(() => toast("Ссылка скопирована"));
   else prompt("Ссылка для друга:", link);
-});
+};
+const toggleHelp = (on) => { $("help").style.display = on ?? $("help").style.display !== "flex" ? "flex" : "none"; };
+$("helpBtn").onclick = () => toggleHelp();
 
-window.addEventListener("resize", fit);
-new ResizeObserver(fit).observe(stage);
-fit();
-try { myName = (tg && tg.initDataUnsafe && tg.initDataUnsafe.user && tg.initDataUnsafe.user.first_name) || "Гость"; } catch (e) {}
-setPeers(0, []);
+// после клика кнопка не должна держать фокус — иначе пробел «нажмёт» её снова
+document.addEventListener("click", (e) => { const b = e.target.closest && e.target.closest("button"); if (b) b.blur(); });
+
+// ---------------------------------------------------------------- горячие клавиши
+window.addEventListener("keydown", (e) => {
+  const tag = document.activeElement && document.activeElement.tagName;
+  if (/INPUT|TEXTAREA/.test(tag)) return;
+  const k = e.key.toLowerCase(), ctrl = e.ctrlKey || e.metaKey;
+  if (e.code === "Space") { if (!spaceDown) { spaceDown = true; cv.style.cursor = "grab"; } e.preventDefault(); return; }
+  if (ctrl && k === "z") { e.preventDefault(); e.shiftKey ? redoIt() : undo(); return; }
+  if (ctrl && k === "y") { e.preventDefault(); redoIt(); return; }
+  if (ctrl || e.altKey) return;
+  const map = { v: "select", h: "hand", p: "pen", e: "eraser", t: "text" };
+  if (map[k] && !e.shiftKey) { setTool(map[k]); e.preventDefault(); return; }
+  if (k === "i") { $("file").click(); return; }
+  if (k === "f") { e.preventDefault(); $("code").focus(); return; }
+  if (k === "?" || (e.code === "Slash" && e.shiftKey) || e.key === "F1") { e.preventDefault(); toggleHelp(); return; }
+  if (k === "escape") { toggleHelp(false); selected = null; invalidate(); return; }
+  if (k === "delete" || k === "backspace") { if (selected) { e.preventDefault(); delObj(selected); } return; }
+  if (e.code === "Digit1" && e.shiftKey) { e.preventDefault(); fitAll(); return; }
+  if (/^[1-6]$/.test(k)) { setColor([...document.querySelectorAll("#tools .sw")][+k - 1].dataset.c); return; }
+  if (k === "0") { zoomAt(VW / 2, VH / 2, 1 / cam.z); return; }
+  if (k === "+" || k === "=") { zoomAt(VW / 2, VH / 2, 1.25); return; }
+  if (k === "-" || k === "_") { zoomAt(VW / 2, VH / 2, 0.8); return; }
+  if (k === "[" || k === "]") { const ws_ = [2, 4, 9], i = ws_.indexOf(brush) + (k === "]" ? 1 : -1); setBrush(ws_[Math.min(2, Math.max(0, i))]); return; }
+  const arrows = { arrowleft: [-1, 0], arrowright: [1, 0], arrowup: [0, -1], arrowdown: [0, 1] };
+  if (arrows[k]) { e.preventDefault(); const s = (e.shiftKey ? 400 : 100) / cam.z; cam.x += arrows[k][0] * s; cam.y += arrows[k][1] * s; invalidate(); }
+});
+window.addEventListener("keyup", (e) => { if (e.code === "Space") { spaceDown = false; setTool(tool); } });
+window.addEventListener("blur", () => { spaceDown = false; });
+
+window.addEventListener("resize", resize);
+resize(); syncButtons(); setTool("select"); setPeers(0, []);
 connect();

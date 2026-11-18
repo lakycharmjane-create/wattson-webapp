@@ -6,62 +6,129 @@
   <title>Решаем вместе</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <style>
-    :root { --bg: var(--tg-theme-bg-color, #fff); --text: var(--tg-theme-text-color, #3c3c3c); --muted: var(--tg-theme-hint-color, #8a8a8a);
-            --line: rgba(128,128,128,.28); --blue: #1cb0f6; --green: #58cc02; --red: #ff4b4b; }
+    :root { --bg: #f4f5f7; --panel: #ffffff; --text: #2b2f36; --muted: #7b828d; --line: #e1e4e8; --blue: #1c8ef6; --blue-bg: #e6f2fe; --red: #ff4b4b; --shadow: 0 2px 10px rgba(20,30,50,.16); }
+    @media (prefers-color-scheme: dark) { :root { --bg: #20232a; --panel: #2c3038; --text: #e8eaee; --muted: #9aa1ad; --line: #3d424c; --blue-bg: #213a57; --shadow: 0 2px 12px rgba(0,0,0,.5); } }
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-    html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--text);
-                 font-family: "Nunito", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-    body { display: flex; flex-direction: column; height: 100dvh; }
-    .bar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 2px solid var(--line); }
-    .bar b { font-size: 16px; color: #ff9600; flex: 1; }
-    .pill { font-size: 13px; font-weight: 800; padding: 4px 10px; border-radius: 20px; background: rgba(128,128,128,.15); color: var(--muted); white-space: nowrap; }
-    .pill.on { background: rgba(88,204,2,.18); color: #46a302; }
-    .btn { border: 2px solid var(--line); background: none; color: var(--text); border-radius: 12px; padding: 7px 12px; font: inherit; font-weight: 800; font-size: 14px; cursor: pointer; }
-    .btn.blue { border-color: var(--blue); color: var(--blue); background: rgba(28,176,246,.12); }
-    .task { padding: 6px 12px; border-bottom: 2px solid var(--line); }
-    .task textarea { width: 100%; min-height: 44px; max-height: 120px; resize: vertical; border: 2px solid var(--line); border-radius: 12px; padding: 8px 10px;
-                     font: inherit; font-size: 15px; background: var(--bg); color: var(--text); }
-    .task small { color: var(--muted); font-weight: 700; font-size: 12px; }
-    #stage { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 8px; background: rgba(128,128,128,.12); }
-    #wrap { position: relative; background: #fff; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,.18); touch-action: none; }
-    #cv { display: block; width: 100%; height: 100%; border-radius: 10px; touch-action: none; }
-    .cur { position: absolute; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%; background: #ff4b4b; border: 2px solid #fff;
-           box-shadow: 0 1px 4px rgba(0,0,0,.4); pointer-events: none; transition: left .06s linear, top .06s linear; }
-    .cur i { position: absolute; left: 14px; top: -4px; font: 700 11px/1 system-ui; font-style: normal; background: #ff4b4b; color: #fff; padding: 2px 5px; border-radius: 6px; white-space: nowrap; }
-    .tools { display: flex; align-items: center; gap: 6px; padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); border-top: 2px solid var(--line); overflow-x: auto; }
-    .sw { flex: none; width: 30px; height: 30px; border-radius: 50%; border: 3px solid transparent; box-shadow: 0 0 0 2px var(--line); cursor: pointer; }
-    .sw.on { box-shadow: 0 0 0 3px var(--blue); }
-    .tool { flex: none; width: 38px; height: 38px; border-radius: 12px; border: 2px solid var(--line); background: none; font-size: 19px; cursor: pointer; color: var(--text); }
-    .tool.on { border-color: var(--blue); background: rgba(28,176,246,.14); }
-    .sep { flex: none; width: 2px; height: 26px; background: var(--line); }
-    #msg { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; text-align: center; padding: 30px; background: var(--bg); z-index: 9; font-weight: 700; line-height: 1.5; }
-    #toast { position: fixed; left: 50%; bottom: 90px; transform: translateX(-50%); background: #333; color: #fff; padding: 8px 14px; border-radius: 12px; font-size: 14px; opacity: 0; transition: opacity .2s; pointer-events: none; }
-    #toast.show { opacity: .95; }
+    html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; overscroll-behavior: none; }
+    #cv { position: fixed; inset: 0; width: 100%; height: 100%; touch-action: none; display: block; }
+    .panel { position: fixed; background: var(--panel); border-radius: 14px; box-shadow: var(--shadow); z-index: 5; }
+    /* левая панель инструментов */
+    #tools { left: 12px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 4px; padding: 6px; max-height: calc(100% - 24px); overflow-y: auto; }
+    .tb { position: relative; width: 42px; height: 42px; border: 0; border-radius: 10px; background: none; color: var(--text); font-size: 20px; cursor: pointer; display: flex; align-items: center; justify-content: center; flex: none; }
+    .tb:hover { background: var(--bg); }
+    .tb.on { background: var(--blue-bg); color: var(--blue); }
+    .tb kbd { position: absolute; right: 3px; bottom: 1px; font: 700 9px/1 system-ui; color: var(--muted); }
+    .tb:disabled { opacity: .35; cursor: default; }
+    .sep { height: 1px; background: var(--line); margin: 3px 4px; flex: none; }
+    .sw { flex: none; width: 24px; height: 24px; border-radius: 50%; margin: 4px auto; cursor: pointer; border: 2px solid var(--panel); box-shadow: 0 0 0 1px var(--line); }
+    .sw.on { box-shadow: 0 0 0 2px var(--blue); }
+    .wd { display: flex; justify-content: center; gap: 4px; padding: 2px 0; flex: none; }
+    .wd i { width: 24px; height: 24px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+    .wd i.on { background: var(--blue-bg); }
+    .wd i b { display: block; background: var(--text); border-radius: 50%; }
+    /* правый верх */
+    #top { right: 12px; top: 12px; display: flex; align-items: center; gap: 6px; padding: 6px 8px; flex-wrap: wrap; justify-content: flex-end; max-width: calc(100% - 24px); }
+    #top input { width: 150px; height: 34px; border: 2px solid var(--line); border-radius: 9px; padding: 0 10px; font: inherit; font-size: 14px; background: var(--bg); color: var(--text); text-transform: uppercase; outline: none; }
+    #top input:focus { border-color: var(--blue); }
+    .btn { height: 34px; border: 0; border-radius: 9px; padding: 0 12px; font: inherit; font-weight: 700; font-size: 14px; cursor: pointer; background: var(--blue); color: #fff; white-space: nowrap; }
+    .btn.ghost { background: var(--blue-bg); color: var(--blue); }
+    .btn.sq { width: 34px; padding: 0; }
+    .pill { font-size: 13px; font-weight: 700; padding: 0 10px; height: 34px; display: flex; align-items: center; border-radius: 9px; background: var(--bg); color: var(--muted); white-space: nowrap; }
+    .pill.on { background: rgba(88,204,2,.18); color: #3f9a00; }
+    /* зум слева внизу */
+    #zoom { left: 12px; bottom: 12px; display: flex; align-items: center; padding: 4px; }
+    #zoom .tb { width: 34px; height: 34px; font-size: 18px; }
+    #zv { min-width: 52px; text-align: center; font-size: 13px; font-weight: 700; color: var(--muted); cursor: pointer; }
+    /* редактор текста */
+    #txt { position: fixed; z-index: 8; display: none; border: 2px dashed var(--blue); background: rgba(255,255,255,.92); color: #222; font-family: system-ui, "Segoe UI", sans-serif; padding: 0 2px; margin: 0; resize: none; outline: none; overflow: hidden; line-height: 1.2; border-radius: 4px; }
+    /* подсказки / сообщения */
+    #toast { position: fixed; left: 50%; bottom: 70px; transform: translateX(-50%); background: #2b2f36; color: #fff; padding: 9px 16px; border-radius: 12px; font-size: 14px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 20; max-width: 90%; text-align: center; }
+    #toast.show { opacity: .96; }
+    #msg { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; text-align: center; padding: 30px; background: var(--bg); z-index: 30; font-weight: 700; line-height: 1.5; }
+    #help { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,.45); z-index: 25; }
+    #help .card { background: var(--panel); border-radius: 16px; padding: 18px 22px; max-width: 520px; width: 92%; max-height: 90%; overflow: auto; box-shadow: var(--shadow); }
+    #help h3 { margin: 0 0 10px; }
+    #help table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    #help td { padding: 4px 0; border-bottom: 1px solid var(--line); }
+    #help td:first-child { white-space: nowrap; padding-right: 14px; }
+    kbd.k { background: var(--bg); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; padding: 1px 6px; font: 700 12px system-ui; }
+    @media (max-width: 760px) {
+      #tools { left: 0; right: 0; top: auto; bottom: 0; transform: none; flex-direction: row; border-radius: 14px 14px 0 0; max-height: none; max-width: 100%; overflow-x: auto; overflow-y: hidden; align-items: center; padding: 6px 8px calc(6px + env(safe-area-inset-bottom)); }
+      .sep { width: 1px; height: 26px; margin: 0 3px; }
+      .wd { flex-direction: row; }
+      .tb kbd { display: none; }
+      #zoom { bottom: 70px; }
+      #top input { width: 110px; }
+      #toast { bottom: 130px; }
+    }
   </style>
 </head>
 <body>
-  <div class="bar">
-    <b>👥 Вместе</b>
+  <canvas id="cv"></canvas>
+
+  <div class="panel" id="tools">
+    <button class="tb on" data-tool="select" title="Выбрать / двигать (V)">🖱️<kbd>V</kbd></button>
+    <button class="tb" data-tool="hand" title="Рука — двигать доску (H или пробел)">✋<kbd>H</kbd></button>
+    <button class="tb" data-tool="pen" title="Карандаш (P)">✏️<kbd>P</kbd></button>
+    <button class="tb" data-tool="eraser" title="Ластик (E)">🧽<kbd>E</kbd></button>
+    <button class="tb" data-tool="text" title="Текст (T)">🔤<kbd>T</kbd></button>
+    <button class="tb" id="imgBtn" title="Фото из галереи / файла (I)">🖼️<kbd>I</kbd></button>
+    <div class="sep"></div>
+    <span class="sw on" data-c="#222222" style="background:#222222" title="1"></span>
+    <span class="sw" data-c="#e53935" style="background:#e53935" title="2"></span>
+    <span class="sw" data-c="#1e88e5" style="background:#1e88e5" title="3"></span>
+    <span class="sw" data-c="#43a047" style="background:#43a047" title="4"></span>
+    <span class="sw" data-c="#fb8c00" style="background:#fb8c00" title="5"></span>
+    <span class="sw" data-c="#8e24aa" style="background:#8e24aa" title="6"></span>
+    <div class="wd" id="wd">
+      <i data-w="2" title="Тонко ( [ )"><b style="width:4px;height:4px"></b></i>
+      <i data-w="4" class="on" title="Средне"><b style="width:8px;height:8px"></b></i>
+      <i data-w="9" title="Толсто ( ] )"><b style="width:14px;height:14px"></b></i>
+    </div>
+    <div class="sep"></div>
+    <button class="tb" id="undo" title="Отменить (Ctrl+Z)">↩️</button>
+    <button class="tb" id="redo" title="Повторить (Ctrl+Shift+Z)">↪️</button>
+    <button class="tb" id="clear" title="Очистить всю доску">🗑️</button>
+  </div>
+
+  <div class="panel" id="top">
     <span class="pill" id="peers">…</span>
-    <button class="btn blue" id="invite">Позвать друга</button>
+    <button class="btn ghost" id="invite">Позвать друга</button>
+    <input id="code" maxlength="12" placeholder="Код ФИПИ" autocomplete="off" spellcheck="false" title="Код задачи ФИПИ (F)">
+    <button class="btn" id="load">Загрузить</button>
+    <button class="btn ghost sq" id="helpBtn" title="Горячие клавиши (?)">?</button>
   </div>
-  <div class="task"><textarea id="task" placeholder="Условие задачи (видит и друг). Впиши или вставь текст — а решение рисуйте на доске."></textarea></div>
-  <div id="stage"><div id="wrap"><canvas id="cv"></canvas></div></div>
-  <div class="tools" id="tools">
-    <span class="sw on" data-c="#222222" style="background:#222"></span>
-    <span class="sw" data-c="#e53935" style="background:#e53935"></span>
-    <span class="sw" data-c="#1e88e5" style="background:#1e88e5"></span>
-    <span class="sw" data-c="#43a047" style="background:#43a047"></span>
-    <span class="sep"></span>
-    <button class="tool on" data-w="4" title="Тонкая">✏️</button>
-    <button class="tool" data-w="10" title="Толстая">🖊️</button>
-    <button class="tool" data-w="28" id="eraser" title="Ластик">🧽</button>
-    <span class="sep"></span>
-    <button class="tool" id="undo" title="Отменить мой последний штрих">↩️</button>
-    <button class="tool" id="clear" title="Очистить доску">🗑️</button>
+
+  <div class="panel" id="zoom">
+    <button class="tb" id="zout" title="Отдалить (−)">−</button>
+    <span id="zv" title="Сбросить масштаб (0)">100%</span>
+    <button class="tb" id="zin" title="Приблизить (+)">+</button>
+    <button class="tb" id="fit" title="Показать всё (Shift+1)">⛶</button>
   </div>
-  <div id="msg"></div>
+
+  <textarea id="txt" rows="1"></textarea>
+  <input type="file" id="file" accept="image/*" multiple hidden>
   <div id="toast"></div>
-  <script src="board.js?v=1"></script>
+  <div id="msg"></div>
+  <div id="help" onclick="if(event.target===this)this.style.display='none'">
+    <div class="card">
+      <h3>Горячие клавиши</h3>
+      <table>
+        <tr><td><kbd class="k">V</kbd> <kbd class="k">H</kbd> <kbd class="k">P</kbd> <kbd class="k">E</kbd> <kbd class="k">T</kbd></td><td>выбрать · рука · карандаш · ластик · текст</td></tr>
+        <tr><td><kbd class="k">I</kbd> / <kbd class="k">Ctrl</kbd>+<kbd class="k">V</kbd></td><td>фото из галереи/файла · вставить картинку из буфера</td></tr>
+        <tr><td><kbd class="k">F</kbd></td><td>ввести код задачи ФИПИ</td></tr>
+        <tr><td><kbd class="k">Пробел</kbd> + мышь</td><td>двигать доску (также колёсико мыши зажатым)</td></tr>
+        <tr><td>колёсико / <kbd class="k">+</kbd> <kbd class="k">−</kbd></td><td>масштаб (тачпад: щипок — масштаб, два пальца — двигать)</td></tr>
+        <tr><td><kbd class="k">0</kbd> · <kbd class="k">Shift</kbd>+<kbd class="k">1</kbd></td><td>масштаб 100% · показать всё</td></tr>
+        <tr><td><kbd class="k">1</kbd>…<kbd class="k">6</kbd> · <kbd class="k">[</kbd> <kbd class="k">]</kbd></td><td>цвет · толщина линии</td></tr>
+        <tr><td><kbd class="k">Ctrl</kbd>+<kbd class="k">Z</kbd> · <kbd class="k">Ctrl</kbd>+<kbd class="k">Shift</kbd>+<kbd class="k">Z</kbd></td><td>отменить · повторить</td></tr>
+        <tr><td><kbd class="k">Del</kbd></td><td>удалить выделенное</td></tr>
+        <tr><td><kbd class="k">←</kbd><kbd class="k">↑</kbd><kbd class="k">→</kbd><kbd class="k">↓</kbd></td><td>двигать доску (с Shift — быстрее)</td></tr>
+        <tr><td><kbd class="k">Esc</kbd></td><td>снять выделение / закрыть окно</td></tr>
+      </table>
+      <p style="color:var(--muted);font-size:13px;margin:10px 0 0">Картинки и текст можно двигать, у картинки есть уголок для изменения размера. Файлы можно перетащить прямо на доску.</p>
+    </div>
+  </div>
+  <script src="board.js?v=2"></script>
 </body>
 </html>
