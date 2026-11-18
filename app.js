@@ -43,6 +43,8 @@ function tokHTML(t) {
     .replace(/\^\(([^)]*)\)/g, "<sup>$1</sup>")
     .replace(/_([^\s·/+−()^<]+)/g, "<sub>$1</sub>");
 }
+// Обычный текст с индексами/степенями (для шагов выводов): без дробей, «/» остаётся «/»
+const txtHTML = (s) => esc(s).replace(/\^\(([^)]*)\)/g, "<sup>$1</sup>").replace(/_([^\s·/+−()^<=,.:;]+)/g, "<sub>$1</sub>");
 const strip = (t) => (/^\(.*\)$/.test(t) ? t.slice(1, -1) : t);
 // Выражение: если в нём ровно одна «/», рисуем настоящую дробь (всё после «/» — знаменатель)
 function exprHTML(tokens) {
@@ -99,7 +101,10 @@ const isRootTok = (t) => t.startsWith("√(") && t.endsWith(")");
 const canon = (f) => toks(f.rhs).map((t) => (isRootTok(t) ? rootKeyOf(t) : t));
 
 // ------------------------------------------------------------------ данные
-const SECTIONS = { "1": "Механика", "2": "Молекулярная физика и термодинамика", "3": "Электродинамика" };
+const SECTIONS = {
+  g7: "7 класс", g8: "8 класс", g9: "9 класс",
+  "1": "10 класс · Механика", "2": "10 класс · Молекулярная физика и термодинамика", "3": "10 класс · Электродинамика",
+};
 UNITS.forEach((u) => u.formulas.forEach((f) => { f.unit = u; }));
 const ALL = UNITS.flatMap((u) => u.formulas);
 const byId = new Map(ALL.map((f) => [f.id, f]));
@@ -140,8 +145,16 @@ function renderPicker() {
       }
     });
   });
+  const dh = UNITS.filter((u) => (typeof DERIVS !== "undefined") && DERIVS[u.id]).map((u) =>
+    `<div class="kicker" style="margin:14px 4px 4px;color:${u.color}">${esc(u.title)}</div>` +
+    DERIVS[u.id].map((d) => `<div class="topic" style="--c:${u.color}"><button class="trow" data-deriv="${d.id}"><b>${esc(d.name)}</b><small>${d.steps.length} шагов</small></button></div>`).join("")).join("");
+  if (dh) html += `<div class="kicker" style="margin:26px 4px 0">🧩 Выводы формул — по шагам</div>${dh}`;
   const t = $("topics");
   t.innerHTML = html;
+  t.querySelectorAll("[data-deriv]").forEach((b) => b.addEventListener("click", () => {
+    const d = Object.values(DERIVS).flat().find((x) => x.id === b.dataset.deriv);
+    if (d) startDerivation(d);
+  }));
   const toggle = (fs) => { const all = fs.every((f) => picked.has(f.id)); fs.forEach((f) => (all ? picked.delete(f.id) : picked.add(f.id))); };
   t.querySelectorAll("[data-sec]").forEach((b) => b.addEventListener("click", () => {
     haptic("tap");
@@ -273,6 +286,23 @@ function startSession(fs) {
   renderExercise();
 }
 
+// Вывод формулы: шаги по порядку — «собери» очередную формулу или ответь на вопрос. Ошибка → шаг повторится в конце.
+function startDerivation(d) {
+  haptic("tap");
+  const unit = { title: "Вывод: " + d.name, formulas: [] };
+  const fs = [], queue = [];
+  d.steps.forEach((st, i) => {
+    const f = { id: `${d.id}${i}`, name: st.s, nameHTML: txtHTML(st.s), lhs: st.l || "", rhs: st.r || "", trap: st.trap || [],
+      legend: st.why || "", legendHTML: st.why ? txtHTML(st.why) : "", unit };
+    fs.push(f);
+    if (st.q) queue.push({ t: "dq", f, q: st.q, given: d.given, opts: shuffle(st.o.map((text, k) => ({ text, ok: k === 0 }))) });
+    else queue.push({ ...exBuild(f), given: d.given });
+  });
+  L = { fs, queue, pos: 0, mistakes: 0, answered: 0, retried: new Set(), bad: new Set(), deriv: d };
+  show("lesson");
+  renderExercise();
+}
+
 function setProgress() {
   $("progFill").style.width = `${Math.round((100 * L.pos) / L.queue.length)}%`;
 }
@@ -319,6 +349,21 @@ function renderExercise() {
 
   if (e.t === "build") { renderBuild(e, box); return; }
 
+  if (e.t === "dq") {
+    box.innerHTML = `<div class="kicker">${esc(e.f.unit.title)}</div>${e.given ? `<div class="legend">${txtHTML(e.given)}</div>` : ""}
+      <h2 class="task">${e.f.nameHTML}<br><b>${txtHTML(e.q)}</b></h2>
+      <div class="options">${e.opts.map((o, i) => `<button class="opt" data-i="${i}">${txtHTML(o.text)}</button>`).join("")}</div>`;
+    box.querySelectorAll(".opt").forEach((b) => b.addEventListener("click", () => {
+      if (L.locked) return;
+      haptic("tap");
+      box.querySelectorAll(".opt").forEach((x) => x.classList.remove("sel"));
+      b.classList.add("sel"); L.answer = +b.dataset.i;
+      setAction("Проверить", true, check);
+    }));
+    setAction("Проверить", false, check);
+    return;
+  }
+
   if (e.t === "pairs") {
     const left = shuffle(e.fs), right = shuffle(e.fs);
     box.innerHTML = `<div class="kicker">Найди пары</div><h2 class="task">Соедини название и формулу</h2>
@@ -361,7 +406,7 @@ function renderExercise() {
 // (что подсвечено), а нажатие по поставленной плитке возвращает её в запас. Корень двигают за его знак.
 function renderBuild(e, box) {
   const isFrac = toks(e.f.rhs).includes("/");
-  box.innerHTML = `<div class="kicker">Собери формулу · ${esc(e.f.unit.title)}</div><h2 class="task">${esc(e.f.name)}</h2>
+  box.innerHTML = `<div class="kicker">Собери формулу · ${esc(e.f.unit.title)}</div>${e.given ? `<div class="legend">${txtHTML(e.given)}</div>` : ""}<h2 class="task">${e.f.nameHTML || esc(e.f.name)}</h2>
     <div class="eqbuild" id="eq">
       <span class="f lhs"><span>${exprHTML(toks(e.f.lhs))}</span><span>=</span></span>
       <div class="fracbox">
@@ -510,13 +555,13 @@ function renderBuild(e, box) {
 function check() {
   const e = L.queue[L.pos];
   let ok;
-  if (e.t === "choice") ok = e.opts[L.answer].ok;
+  if (e.t === "choice" || e.t === "dq") ok = e.opts[L.answer].ok;
   else if (e.t === "name") ok = e.opts[L.answer] === e.f;
   else if (e.t === "build") {
     ok = cform(L.readBuild()) === cform(canon(e.f));
     $("exercise").querySelectorAll(".zone").forEach((z) => z.classList.add("lockedz"));
   }
-  const correctHTML = e.t === "name" ? `<b>${esc(e.f.name)}</b>` : formulaHTML(e.f);
+  const correctHTML = e.t === "name" ? `<b>${esc(e.f.name)}</b>` : e.t === "dq" ? `<b>${txtHTML(e.opts.find((o) => o.ok).text)}</b>` : formulaHTML(e.f);
   L.answered += 1;
   if (ok) haptic("success");
   else {
@@ -529,7 +574,7 @@ function check() {
     }
   }
   const praise = pick(["Отлично!", "Верно!", "Так держать!", "Супер!", "Мяу, правильно!"]);
-  const legend = e.f.legend ? `<div class="legend">${tokHTML(e.f.legend)}</div>` : "";
+  const legend = e.f.legend ? `<div class="legend">${e.f.legendHTML || tokHTML(e.f.legend)}</div>` : "";
   showResult(ok, ok ? praise : "Правильный ответ:", ok ? (e.t === "name" ? "" : legend) : correctHTML + legend);
 }
 
@@ -560,9 +605,10 @@ function finishSession() {
     ? `<div class="kicker" style="color:var(--red)">Стоит повторить ещё раз</div>` +
       bad.map((f) => `<div class="badf"><div class="legend">${esc(f.name)}</div>${formulaHTML(f, "small")}</div>`).join("")
     : "";
-  $("againBad").classList.toggle("hidden", !bad.length);
+  const dv = L.deriv;
+  $("againBad").classList.toggle("hidden", !bad.length || Boolean(dv));
   $("againBad").onclick = () => startSession(bad);
-  $("againAll").onclick = () => startSession(fs);
+  $("againAll").onclick = dv ? () => startDerivation(dv) : () => startSession(fs);
   haptic("success");
   show("done");
 }
