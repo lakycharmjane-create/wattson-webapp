@@ -66,6 +66,7 @@ function connect() {
       }
       case "add": objs.set(m.o.id, m.o); if (m.o.fipi) setCur(m.o.fipi); if (m.focus) focusOn(m.o); invalidate(); break;
       case "checked":
+        if (m.who === myName && m.ok !== null) setTimeout(() => send({ t: "diary_get", uid: UID, codes: variant }), 800);
         if (m.ok === null) toast(`Для задачи ${m.code} нет эталонного ответа`);
         else { toast(`${m.ok ? "✅" : "❌"} ${m.who}: ${m.ok ? "верно!" : "неверно, попробуй ещё"}${m.v === -1 ? " (ответ в базе ФИПИ не подтвердил — возможна ошибка в эталоне)" : ""}`, m.v === -1 ? 6000 : 3500); if (m.ok && m.who === myName) { solved.add(m.code); if (TASKS) renderTasks(); } if (ai.on && !ai.busy && !ai.thinking) { if (!m.ok && m.who === myName) aiErrOffer(); else aiRun(() => aiReact(m.ok ? "happy" : "oops", m.ok ? "Есть! Так держать 😺" : "Хм, не сходится. Хочешь, разберём вместе? Напиши мне.")); } }
         break;
@@ -80,7 +81,7 @@ function connect() {
         invalidate(); break;
       case "cat": if (!aiLeader()) { ai.lastPos = [m.x, m.y]; ai.tx = m.x; ai.ty = m.y; ai.k = 6; invalidate(); } break;
       case "cat_doodle": if (ai.on && !aiLeader()) aiRun(() => aiDoodleShow(m)); break;
-      case "diary": renderDiary(m); break;
+      case "diary": diaryData = m; diaryMarks = m.marks || {}; renderDiary(m); if (TASKS && $("tasks").style.display !== "none") renderTasks(); break;
       case "coins":                                      // монеты за верное решение
         if (m.why === "peek") toast("Ответ уже показывали — за эту задачу монеты не начисляются", 4500);
         else if (m.why === "cap") toast((m.parts || [])[0] || "Дневной лимит монет исчерпан", 6000);
@@ -654,24 +655,35 @@ $("ansSol").onclick = () => {
 // ---------------------------------------------------------------- список задач (поиск, разделы, случайная)
 let TASKS = null, tsec = "";
 const httpBase = () => WS_URL.replace(/^ws/, "http").replace(/\/ws.*$/, "");
+let diaryMarks = {}, diaryData = null, tstat = "";                 // метки задач из дневника: код → 1 решена верно, 2 были ошибки
+const markOf = (code) => diaryMarks[code] || (solved.has(code) ? 1 : 0);
 function renderTasks() {
   const q = $("tq").value.trim().toLowerCase();
   const secs = [...new Set(TASKS.map((t) => t.s).filter(Boolean))];
-  const chips = [["", "Все"], ...(variant.length ? [["__variant", `Вариант (${variant.length})`]] : []), ...secs.map((s) => [s, s])];
+  const cnt = (list) => `${list.filter((t) => markOf(t.c) === 1).length}/${list.length}`;
+  const chips = [["", `Все ${cnt(TASKS)}`], ...(variant.length ? [["__variant", `Вариант (${variant.length})`]] : []), ...secs.map((s) => [s, `${s} ${cnt(TASKS.filter((t) => t.s === s))}`])];
   $("chips").innerHTML = chips.map(([s, l]) => `<i class="${s === tsec ? "on" : ""}" data-s="${s}">${l}</i>`).join("");
   $("chips").querySelectorAll("i").forEach((i) => i.addEventListener("click", () => { tsec = i.dataset.s; renderTasks(); }));
+  const nOk = TASKS.filter((t) => markOf(t.c) === 1).length, nBad = TASKS.filter((t) => markOf(t.c) === 2).length;
+  const st = [["", "Все"], ["todo", `Не решены ${TASKS.length - nOk}`], ["wrong", `С ошибками ${nBad}`], ["done", `Решены ${nOk}`]];
+  $("schips").innerHTML = st.map(([s, l]) => `<i class="${s === tstat ? "on" : ""}" data-s="${s}">${l}</i>`).join("");
+  $("schips").querySelectorAll("i").forEach((i) => i.addEventListener("click", () => { tstat = i.dataset.s; renderTasks(); }));
+  const coins = diaryData && diaryData.coins ? diaryData.coins.total : 0;
+  $("tsum").textContent = `✅ решено ${nOk} из ${TASKS.length} · ❌ с ошибками ${nBad}` + (coins ? ` · 🪙 с доски: ${coins}` : "");
   const byCode = new Map(TASKS.map((t) => [t.c, t]));
   const base = tsec === "__variant" ? variant.map((c) => byCode.get(c)).filter(Boolean) : TASKS;
-  const list = base.filter((t) => (tsec === "__variant" || !tsec || t.s === tsec) && (!q || t.c.toLowerCase().includes(q) || t.t.toLowerCase().includes(q) || (t.k || "").toLowerCase().includes(q)));
+  const okStat = (t) => !tstat || (tstat === "done" && markOf(t.c) === 1) || (tstat === "wrong" && markOf(t.c) === 2) || (tstat === "todo" && markOf(t.c) !== 1);
+  const list = base.filter((t) => (tsec === "__variant" || !tsec || t.s === tsec) && okStat(t) && (!q || t.c.toLowerCase().includes(q) || t.t.toLowerCase().includes(q) || (t.k || "").toLowerCase().includes(q)));
   $("tcount").textContent = `${list.length} из ${TASKS.length}`;
-  $("tlist").innerHTML = list.slice(0, 150).map((t) => `<div class="ti ${solved.has(t.c) ? "done" : ""}" data-c="${t.c}"><b>${tsec === "__variant" ? (base.indexOf(t) + 1) + ". " : ""}${t.c}${solved.has(t.c) ? " ✅" : ""}${t.v === -1 ? " ⚠️" : ""}</b>${t.t.replace(/</g, "&lt;")}<small>${(t.k || t.s || "").replace(/</g, "&lt;")}</small></div>`).join("") || "<div class='ti'>Ничего не найдено</div>";
+  $("tlist").innerHTML = list.slice(0, 150).map((t) => `<div class="ti ${markOf(t.c) === 1 ? "done" : markOf(t.c) === 2 ? "bad" : ""}" data-c="${t.c}"><b>${tsec === "__variant" ? (base.indexOf(t) + 1) + ". " : ""}${t.c}${markOf(t.c) === 1 ? " ✅" : markOf(t.c) === 2 ? " ❌" : ""}${t.v === -1 ? " ⚠️" : ""}</b>${t.t.replace(/</g, "&lt;")}<small>${(t.k || t.s || "").replace(/</g, "&lt;")}</small></div>`).join("") || "<div class='ti'>Ничего не найдено</div>";
   $("tlist").querySelectorAll(".ti[data-c]").forEach((d) => d.addEventListener("click", () => loadCode(d.dataset.c)));
 }
 async function toggleTasks(on) {
   const p = $("tasks"), show = on ?? p.style.display === "none";
   p.style.display = show ? "flex" : "none";
   if (!show) return;
-  toggleCp(false); $("diary").style.display = "none";
+  toggleCp(false);
+  send({ t: "diary_get", uid: UID, codes: variant });
   if (!TASKS) {
     $("tlist").innerHTML = "<div class='ti'>Загружаю список…</div>";
     try { TASKS = await (await fetch(httpBase() + "/tasks")).json(); } catch (e) { $("tlist").innerHTML = "<div class='ti'>Не удалось загрузить список задач</div>"; return; }
@@ -964,7 +976,6 @@ function toggleAi(on) {
   const p = $("aip"), show = on ?? p.style.display !== "flex";
   p.style.display = show ? "flex" : "none";
   if (show) {
-    $("diary").style.display = "none";
     if (!ai.on) send({ t: "ai_join" }); if (!online) toast("Нет связи с сервером");
     if (!aiKey && !aiTrial && !aiFree) showSetup(); else { aiSetup = false; aiGate(); setTimeout(() => $("aiIn").focus(), 50); }
   }
@@ -1056,14 +1067,6 @@ $("aiIn").addEventListener("keydown", (e) => { if (e.key === "Enter") aiSend(); 
 // ---------------------------------------------------------------- 📓 Дневник ошибок: слабые темы, похожие задачи, повторение формул, итоги варианта
 const FORMULA_UNITS = new Set(["1.1", "1.2", "1.3", "1.4", "1.5", "2.1", "2.2", "3.1", "3.2"]);   // темы, для которых есть «Повторение формул»
 function openFormulas(u) { const url = new URL("index.html?r=" + u, location.href).href; if (tg && tg.openLink) tg.openLink(url); else window.open(url, "_blank", "noopener"); }
-function toggleDiary(on) {
-  const p = $("diary"), show = on ?? p.style.display === "none";
-  p.style.display = show ? "flex" : "none";
-  if (!show) return;
-  toggleCp(false); toggleTasks(false); toggleAi(false);
-  $("dbody").textContent = "Загружаю…"; send({ t: "diary_get", uid: UID, codes: variant });
-}
-$("diaryBtn").onclick = () => toggleDiary(); $("dclose").onclick = () => toggleDiary(false);
 function renderDiary(m) {
   const box = $("dbody"); box.textContent = "";
   const add = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; box.appendChild(e); return e; };
@@ -1088,7 +1091,7 @@ function renderDiary(m) {
           info.textContent = ""; const l = document.createElement("div"); l.textContent = `${t.k} ${t.name}: верно ${t.ok}, с ошибками ${t.wrong}, не тронуто ${t.total - t.ok - t.wrong} (всего ${t.total})`; info.appendChild(l);
           const acts = document.createElement("div"); acts.className = "da"; info.appendChild(acts);
           const pool = t.wrongC.length ? t.wrongC : t.noneC;
-          if (pool.length) btn(acts, t.wrongC.length ? "🔁 Повторить ошибочную" : "🎯 Решить новую", () => { loadCode(pool[Math.floor(Math.random() * pool.length)]); toggleDiary(false); });
+          if (pool.length) btn(acts, t.wrongC.length ? "🔁 Повторить ошибочную" : "🎯 Решить новую", () => { loadCode(pool[Math.floor(Math.random() * pool.length)]); });
           if (FORMULA_UNITS.has(t.u)) btn(acts, "📖 Формулы", () => openFormulas(t.u));
         };
         grid.appendChild(b);
@@ -1101,7 +1104,7 @@ function renderDiary(m) {
       const row = add("div", "drow"); const l = document.createElement("div"); l.className = "dl"; l.textContent = `${tp.name} · ошибок: ${tp.wrong}`; row.appendChild(l);
       const acts = document.createElement("div"); acts.className = "da"; row.appendChild(acts);
       const sg = (m.suggest || []).find((x) => x.name === tp.name);
-      if (sg) btn(acts, "🎯 Похожая задача", () => { loadCode(sg.c); toggleDiary(false); });
+      if (sg) btn(acts, "🎯 Похожая задача", () => { loadCode(sg.c); });
       if (FORMULA_UNITS.has(tp.u)) btn(acts, "📖 Формулы", () => openFormulas(tp.u));
     }
   }
@@ -1109,10 +1112,10 @@ function renderDiary(m) {
     add("div", "dh", "Вариант");
     const chips = add("div", "dchips");
     for (const c of variant) {
-      const st = (m.stats || {})[c] || {}; const b = document.createElement("button");
-      b.className = "dchip " + (st.ok ? "ok" : st.wrong ? "bad" : ""); b.textContent = (st.ok ? "✅ " : st.wrong ? "❌ " : "· ") + c; b.onclick = () => { loadCode(c); toggleDiary(false); }; chips.appendChild(b);
+      const mk = markOf(c); const b = document.createElement("button");
+      b.className = "dchip " + (mk === 1 ? "ok" : mk === 2 ? "bad" : ""); b.textContent = (mk === 1 ? "✅ " : mk === 2 ? "❌ " : "· ") + c; b.onclick = () => { loadCode(c); }; chips.appendChild(b);
     }
-    const b = btn(box, "📊 Пусть кот разберёт мой вариант", () => { toggleDiary(false); toggleAi(true); aiAsk("📊 Разбери мой вариант", "variant"); }, "btn");
+    const b = btn(box, "📊 Пусть кот разберёт мой вариант", () => { toggleTasks(false); toggleAi(true); aiAsk("📊 Разбери мой вариант", "variant"); }, "btn");
     if (!t.tries) b.disabled = true;
   }
 }
@@ -1147,7 +1150,7 @@ window.addEventListener("keydown", (e) => {
   if (k === "i") { $("file").click(); return; }
   if (k === "f") { e.preventDefault(); $("code").focus(); return; }
   if (k === "?" || (e.code === "Slash" && e.shiftKey) || e.key === "F1") { e.preventDefault(); toggleHelp(); return; }
-  if (k === "escape") { toggleDiary(false); toggleHelp(false); toggleCp(false); toggleTasks(false); toggleAi(false); selected = null; invalidate(); return; }
+  if (k === "escape") { toggleHelp(false); toggleCp(false); toggleTasks(false); toggleAi(false); selected = null; invalidate(); return; }
   if (k === "delete" || k === "backspace") { if (selected) { e.preventDefault(); delObj(selected); } return; }
   if (e.code === "Digit1" && e.shiftKey) { e.preventDefault(); fitAll(); return; }
   if (/^[1-7]$/.test(k)) { setColor(PALETTE[+k - 1]); return; }
