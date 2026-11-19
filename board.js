@@ -74,7 +74,8 @@ function connect() {
       case "ai_q": aiLog("me", m.who === myName ? m.text : `${m.who}: ${m.text}`); break;
       case "ai_think": aiThink(); break;
       case "ai_act": aiRun(() => aiAct(m)); break;
-      case "ai_err": aiFail(m.why); break;
+      case "ai_err": aiFail(m.why, m.who); break;
+      case "ai_left": aiLeft = m.n; aiLog("sys", m.n > 0 ? `Осталось пробных запросов: ${m.n}` : "Это был последний пробный запрос. Дальше — со своим ключом 🔑"); break;
       case "focusobj": { const o = objs.get(m.id); if (o) { focusOn(o); selected = o.id; invalidate(); } break; }
       case "sol_err": toast(`Для задачи ${m.code} нет готового решения`); break;
       case "variant": variant = m.codes || []; tsec = "__variant"; if (TASKS) renderTasks(); break;
@@ -698,10 +699,15 @@ function aiLook() {                                   // «читает» то, 
   if (b) aiMoveTo(b.x + b.w * (0.3 + Math.random() * 0.4), b.y + b.h * (0.3 + Math.random() * 0.4), 2.8);
 }
 function aiThink() { aiJoin(); ai.thinking = true; ai.busy = true; ai.mood = "think"; ai.text = ""; aiLook(); invalidate(); }
-function aiFail(why) {
+function aiFail(why, who) {
+  if (/^(badkey|quota|nocredit|noaudio)$/.test(why) && who && who !== myName) why = "fail";   // чужой ключ — не моё дело
   aiBusyDone(); ai.thinking = false; ai.busy = false; ai.mood = "oops";
-  const t = { fast: "Не так быстро, я не успеваю мурлыкать 😼", limit: "На сегодня я наработался. Приходи завтра!", nokey: "Меня ещё не подключили на сервере 🙈", fail: "Мяу, что-то заглючило. Спроси ещё раз." }[why] || "Мяу, что-то пошло не так.";
+  const t = { fast: "Не так быстро, я не успеваю мурлыкать 😼", limit: "На сегодня пробные запросы закончились. Подключи свой ключ или приходи завтра!", nokey: "Меня ещё не подключили на сервере 🙈",
+    fail: "Мяу, что-то заглючило. Спроси ещё раз.", badkey: "Ключ не подошёл 🙈 Проверь, что скопировал его целиком, и вставь заново.", quota: "У твоего ключа сейчас кончился лимит запросов 😿 Подожди минутку (или до завтра) и спроси ещё раз.",
+    nocredit: "На твоём аккаунте Grok нет кредитов 😿 Возьми ключ Gemini — он бесплатный.", noaudio: "Grok не понимает голос — напиши текстом или возьми ключ Gemini.", trial_over: "Пять пробных запросов закончились 😺 Дальше — со своим ключом, это две минуты!" }[why] || "Мяу, что-то пошло не так.";
   aiLog("cat", t); aiRun(() => aiSay(t));
+  if (why === "badkey") { keySave(""); showSetup("Ключ не подошёл — вставь его заново."); }
+  else if (why === "trial_over") { aiTrial = false; aiLeft = 0; lsSet("wt", ""); lsSet("wtd", "1"); showSetup("Пробные запросы закончились."); }
 }
 function aiReact(mood, text) { ai.mood = mood; aiLog("cat", text); return aiSay(text); }
 async function aiAct(m) {
@@ -783,8 +789,43 @@ function drawCat() {
 function toggleAi(on) {
   const p = $("aip"), show = on ?? p.style.display !== "flex";
   p.style.display = show ? "flex" : "none";
-  if (show) { if (!ai.on) send({ t: "ai_join" }); if (!online) toast("Нет связи с сервером"); setTimeout(() => $("aiIn").focus(), 50); }
+  if (show) {
+    if (!ai.on) send({ t: "ai_join" }); if (!online) toast("Нет связи с сервером");
+    if (!aiKey && !aiTrial) showSetup(); else { aiSetup = false; aiGate(); setTimeout(() => $("aiIn").focus(), 50); }
+  }
 }
+
+// ключ ученика (бесплатный Gemini/Grok): хранится в его Telegram (CloudStorage) и в браузере, на сервер уходит только с вопросом
+const lsGet = (k) => { try { return localStorage.getItem(k) || ""; } catch (e) { return ""; } };
+const lsSet = (k, v) => { try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k); } catch (e) {} };
+const cloud = tg && tg.CloudStorage && tg.isVersionAtLeast && tg.isVersionAtLeast("6.9") ? tg.CloudStorage : null;
+const tgUser = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
+let UID = tgUser ? "t" + tgUser.id : lsGet("wdid"); if (!UID) { UID = "d" + rnd(14); lsSet("wdid", UID); }
+let aiKey = lsGet("wk"), aiTrial = lsGet("wt") === "1", aiLeft = lsGet("wtd") ? 0 : null, aiSetup = false;
+function keySave(v) { aiKey = v; lsSet("wk", v); if (cloud) { try { v ? cloud.setItem("wk", v, () => {}) : cloud.removeItem("wk", () => {}); } catch (e) {} } }
+if (cloud) { try { cloud.getItem("wk", (err, v) => { if (!err && v && !aiKey) { aiKey = v; lsSet("wk", v); if ($("aip").style.display === "flex") { aiSetup = false; aiGate(); } } }); } catch (e) {} }
+const KEY_OK = /^[\w.\-]{16,200}$/;
+function aiGate() { $("aip").classList.toggle("setup", aiSetup); }
+function showSetup(msg) {
+  aiSetup = true; aiGate(); $("aip").style.display = "flex";
+  $("aiKeyIn").value = ""; $("aiKeyMsg").textContent = msg || "";
+  $("aiKeyDel").style.display = aiKey ? "" : "none";
+  $("aiTrial").style.display = aiLeft === 0 ? "none" : "";
+  $("aiTrial").textContent = aiLeft > 0 && aiLeft < 5 ? `Продолжить пробные запросы (осталось ${aiLeft})` : "Попробовать 5 запросов без своего ключа";
+  stTab(true);
+}
+function stTab(key) { $("stKey").classList.toggle("on", key); $("stTut").classList.toggle("on", !key); $("stKeyBox").style.display = key ? "" : "none"; $("stTutBox").style.display = key ? "none" : ""; }
+$("stKey").onclick = () => stTab(true); $("stTut").onclick = () => stTab(false);
+$("aiKeyBtn").onclick = () => (aiSetup ? (aiKey || aiTrial ? (aiSetup = false, aiGate()) : 0) : showSetup());
+$("aiKeySave").onclick = () => {
+  const v = $("aiKeyIn").value.trim();
+  if (!KEY_OK.test(v)) { $("aiKeyMsg").textContent = "Не похоже на ключ — скопируй его целиком (без пробелов)."; return; }
+  keySave(v); aiSetup = false; aiGate(); aiLog("sys", "🔑 Ключ сохранён — спрашивай!"); toast("Ключ сохранён ✅"); setTimeout(() => $("aiIn").focus(), 50);
+};
+$("aiKeyDel").onclick = () => { keySave(""); showSetup("Ключ удалён."); };
+$("aiTrial").onclick = () => { aiTrial = true; lsSet("wt", "1"); aiSetup = false; aiGate(); aiLog("sys", "Пробный режим: 5 запросов без ключа"); setTimeout(() => $("aiIn").focus(), 50); };
+$("aisetup").addEventListener("click", (e) => { const a = e.target.closest("a[data-url]"); if (!a) return; e.preventDefault(); const u = a.dataset.url; if (tg && tg.openLink) tg.openLink(u); else window.open(u, "_blank", "noopener"); });
+$("aiKeyIn").addEventListener("keydown", (e) => { if (e.key === "Enter") $("aiKeySave").click(); e.stopPropagation(); });
 $("aiBtn").onclick = () => toggleAi();
 $("aiClose").onclick = () => toggleAi(false);
 $("aiClean").onclick = () => { const ids = [...objs.values()].filter((o) => o.ai).map((o) => o.id); ids.forEach((id) => delObj(id, false)); toast(ids.length ? "Пометки Ваттсона стёрты" : "Пометок нет"); };
@@ -798,11 +839,12 @@ function snapshot() {
 }
 function aiAsk(text, audio) {
   if (!online) { toast("Нет связи с сервером"); return; }
+  if (!aiKey && !aiTrial) { showSetup(); return; }
   if (aiBusyTimer) { toast("Ваттсон ещё думает 😼"); return; }
   if (!ai.on) send({ t: "ai_join" });
   aiBusyTimer = setTimeout(() => { aiBusyTimer = 0; if (ai.thinking) aiFail("fail"); }, 45000);
   if (audio) aiVoiceEl = aiLog("me", "🎤 …");
-  send({ t: "ai", text, audio: audio || "", img: snapshot(), view: { x: cam.x, y: cam.y, z: cam.z, w: VW, h: VH }, code: curCode });
+  send({ t: "ai", text, audio: audio || "", img: snapshot(), view: { x: cam.x, y: cam.y, z: cam.z, w: VW, h: VH }, code: curCode, key: aiKey, uid: UID });
 }
 function aiSend() { const t = $("aiIn").value.trim(); if (!t) return; $("aiIn").value = ""; aiAsk(t, ""); }
 $("aiGo").onclick = aiSend;
