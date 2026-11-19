@@ -669,9 +669,27 @@ $("trandom").onclick = () => {
 
 // ---------------------------------------------------------------- 🐱 Ваттсон (ИИ-помощник)
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-let aiQ = Promise.resolve(), aiBusyTimer = 0, aiVoiceEl = null, rec = null;
+// запасной «переводчик» LaTeX в обычный текст — на случай, если модель всё же напишет $\frac{a}{b}$
+const SUP = { 0: "⁰", 1: "¹", 2: "²", 3: "³", 4: "⁴", 5: "⁵", 6: "⁶", 7: "⁷", 8: "⁸", 9: "⁹", "+": "⁺", "-": "⁻", "−": "⁻", n: "ⁿ" };
+const SUB = { 0: "₀", 1: "₁", 2: "₂", 3: "₃", 4: "₄", 5: "₅", 6: "₆", 7: "₇", 8: "₈", 9: "₉", a: "ₐ", e: "ₑ", h: "ₕ", i: "ᵢ", j: "ⱼ", k: "ₖ", l: "ₗ", m: "ₘ", n: "ₙ", o: "ₒ", p: "ₚ", r: "ᵣ", s: "ₛ", t: "ₜ", u: "ᵤ", v: "ᵥ", x: "ₓ" };
+const GREEK = { Delta: "Δ", delta: "δ", rho: "ρ", nu: "ν", lambda: "λ", mu: "μ", omega: "ω", Omega: "Ω", alpha: "α", beta: "β", gamma: "γ", varepsilon: "ε", epsilon: "ε", eta: "η", pi: "π", sigma: "σ", tau: "τ", varphi: "φ", phi: "φ", theta: "θ", cdot: "·", times: "×", approx: "≈", leq: "≤", geq: "≥", neq: "≠", pm: "±", to: "→", rightarrow: "→", circ: "°" };
+function texify(s) {
+  s = String(s);
+  if (!/[\u005c$^_]/.test(s)) return s;
+  const map = (str, tbl) => { const o = [...str].map((c) => tbl[c]); return o.every(Boolean) ? o.join("") : null; };
+  s = s.replace(/\$+/g, "").replace(/\u005c[()[\]]/g, "").replace(/\u005c(?:left|right|,|;|!|:)/g, "");
+  s = s.replace(/\u005c(?:text|mathrm|mathit|mathbf|operatorname)\s*\{([^{}]*)\}/g, "$1");
+  for (let i = 0; i < 3; i++) s = s.replace(/\u005c[dt]?frac\s*\{([^{}]*)\}\s*\{([^{}]*)\}/g, (_, a, b) => `(${a})/(${b})`);
+  s = s.replace(/\u005csqrt\s*\{([^{}]*)\}/g, "√($1)").replace(/\u005csqrt\s*(\w)/g, "√$1");
+  s = s.replace(/\u005c([A-Za-z]+)/g, (m, w) => GREEK[w] || m);
+  s = s.replace(/\^\{([^{}]*)\}/g, (m, a) => map(a, SUP) || m).replace(/\^([0-9n+\-−])/g, (m, a) => SUP[a]);
+  s = s.replace(/_\{([^{}]*)\}/g, (m, a) => map(a, SUB) || `_${a}`).replace(/_([0-9a-z])/g, (m, a) => SUB[a] || m);
+  return s.replace(/[{}]/g, "");
+}
+let aiQ = Promise.resolve(), aiBusyTimer = 0;
 const aiRun = (fn) => (aiQ = aiQ.then(() => Promise.race([fn(), sleep(30000)])).catch(() => {}));   // очередь не должна зависать навсегда
 function aiLog(cls, text) {
+  if (cls === "cat") text = texify(text);
   const d = document.createElement("div"); d.className = cls; d.textContent = text;
   const lg = $("ailog"); lg.appendChild(d); lg.scrollTop = lg.scrollHeight; return d;
 }
@@ -681,12 +699,13 @@ function aiJoin() {
   ai.x = ai.tx = cam.x + VW / z + 40 / z; ai.y = ai.ty = cam.y + VH / z * 0.2; ai.nextIdle = performance.now() + 2500;
   aiMoveTo(cam.x + VW / z * 0.8, cam.y + VH / z * 0.22, 2.6); invalidate();
 }
-function aiHello() { aiRun(async () => { await aiMoveTo(ai.tx, ai.ty, 2.6); ai.mood = "happy"; const t = "Мяу! Я Ваттсон 😺 Что решаем? Пиши или жми 🎤."; aiLog("cat", t); await aiSay(t); ai.mood = "chill"; }); }
+function aiHello() { aiRun(async () => { await aiMoveTo(ai.tx, ai.ty, 2.6); ai.mood = "happy"; const t = "Мяу! Я Ваттсон 😺 Что решаем? Пиши, что у тебя не получается."; aiLog("cat", t); await aiSay(t); ai.mood = "chill"; }); }
 const aiMoveTo = (x, y, k = 4.5) => new Promise((res) => {
   ai.tx = x; ai.ty = y; ai.k = k * (0.8 + Math.random() * 0.5); const t0 = performance.now();
   (function w() { if (Math.hypot(ai.x - ai.tx, ai.y - ai.ty) * cam.z < 8 || performance.now() - t0 > 3000) res(); else setTimeout(w, 40); })();
 });
 function aiSay(text) {
+  text = texify(text);
   if (ai.resolve) ai.resolve();
   ai.text = text; ai.shown = 0; ai.pause = 0.3; ai.doneAt = 0; invalidate();
   return new Promise((r) => { ai.resolve = r; });
@@ -700,11 +719,11 @@ function aiLook() {                                   // «читает» то, 
 }
 function aiThink() { aiJoin(); ai.thinking = true; ai.busy = true; ai.mood = "think"; ai.text = ""; aiLook(); invalidate(); }
 function aiFail(why, who) {
-  if (/^(badkey|quota|nocredit|noaudio)$/.test(why) && who && who !== myName) why = "fail";   // чужой ключ — не моё дело
+  if (/^(badkey|quota|nocredit)$/.test(why) && who && who !== myName) why = "fail";   // чужой ключ — не моё дело
   aiBusyDone(); ai.thinking = false; ai.busy = false; ai.mood = "oops";
   const t = { fast: "Не так быстро, я не успеваю мурлыкать 😼", limit: "На сегодня пробные запросы закончились. Подключи свой ключ или приходи завтра!", nokey: "Меня ещё не подключили на сервере 🙈",
     fail: "Мяу, что-то заглючило. Спроси ещё раз.", badkey: "Ключ не подошёл 🙈 Проверь, что скопировал его целиком, и вставь заново.", quota: "У твоего ключа сейчас кончился лимит запросов 😿 Подожди минутку (или до завтра) и спроси ещё раз.",
-    nocredit: "На твоём аккаунте Grok нет кредитов 😿 Возьми ключ Gemini — он бесплатный.", noaudio: "Grok не понимает голос — напиши текстом или возьми ключ Gemini.", trial_over: "Пять пробных запросов закончились 😺 Дальше — со своим ключом, это две минуты!" }[why] || "Мяу, что-то пошло не так.";
+    nocredit: "На твоём аккаунте Grok нет кредитов 😿 Возьми ключ Gemini — он бесплатный.", trial_over: "Пять пробных запросов закончились 😺 Дальше — со своим ключом, это две минуты!" }[why] || "Мяу, что-то пошло не так.";
   aiLog("cat", t); aiRun(() => aiSay(t));
   if (why === "badkey") { keySave(""); showSetup("Ключ не подошёл — вставь его заново."); }
   else if (why === "trial_over") { aiTrial = false; aiLeft = 0; lsSet("wt", ""); lsSet("wtd", "1"); showSetup("Пробные запросы закончились."); }
@@ -713,7 +732,6 @@ function aiReact(mood, text) { ai.mood = mood; aiLog("cat", text); return aiSay(
 async function aiAct(m) {
   aiBusyDone(); ai.thinking = false; ai.busy = true; ai.mood = m.mood || "chill";
   aiLog("cat", m.say);
-  if (m.heard) { if (aiVoiceEl) { aiVoiceEl.textContent = "🎤 " + m.heard; aiVoiceEl = null; } else aiLog("me", `${m.from}: 🎤 ${m.heard}`); }
   const marks = (m.marks || []).filter((o) => o && o.p && o.p.length);
   marks.forEach((o) => { o._n = 0; objs.set(o.id, o); });
   if (m.at) await aiMoveTo(m.at[0], m.at[1], 3.6);
@@ -837,47 +855,17 @@ function snapshot() {
   c.getContext("2d").drawImage(cv, 0, 0, c.width, c.height);
   return c.toDataURL("image/jpeg", 0.72);
 }
-function aiAsk(text, audio) {
+function aiAsk(text) {
   if (!online) { toast("Нет связи с сервером"); return; }
   if (!aiKey && !aiTrial) { showSetup(); return; }
   if (aiBusyTimer) { toast("Ваттсон ещё думает 😼"); return; }
   if (!ai.on) send({ t: "ai_join" });
   aiBusyTimer = setTimeout(() => { aiBusyTimer = 0; if (ai.thinking) aiFail("fail"); }, 45000);
-  if (audio) aiVoiceEl = aiLog("me", "🎤 …");
-  send({ t: "ai", text, audio: audio || "", img: snapshot(), view: { x: cam.x, y: cam.y, z: cam.z, w: VW, h: VH }, code: curCode, key: aiKey, uid: UID });
+  send({ t: "ai", text, img: snapshot(), view: { x: cam.x, y: cam.y, z: cam.z, w: VW, h: VH }, code: curCode, key: aiKey, uid: UID });
 }
-function aiSend() { const t = $("aiIn").value.trim(); if (!t) return; $("aiIn").value = ""; aiAsk(t, ""); }
+function aiSend() { const t = $("aiIn").value.trim(); if (!t) return; $("aiIn").value = ""; aiAsk(t); }
 $("aiGo").onclick = aiSend;
 $("aiIn").addEventListener("keydown", (e) => { if (e.key === "Enter") aiSend(); if (e.key === "Escape") $("aiIn").blur(); e.stopPropagation(); });
-
-// голос: запись → моно WAV 16 кГц (его понимает Gemini в любом браузере)
-async function toWav(buf) {
-  const AC = window.AudioContext || window.webkitAudioContext, ac = new AC();
-  const dec = await new Promise((res, rej) => ac.decodeAudioData(buf, res, rej)); if (ac.close) ac.close();
-  const sr = 16000, oc = new OfflineAudioContext(1, Math.max(1, Math.ceil(dec.duration * sr)), sr), src = oc.createBufferSource();
-  src.buffer = dec; src.connect(oc.destination); src.start();
-  const pcm = (await oc.startRendering()).getChannelData(0), dv = new DataView(new ArrayBuffer(44 + pcm.length * 2));
-  const str = (o, s) => [...s].forEach((ch, i) => dv.setUint8(o + i, ch.charCodeAt(0)));
-  str(0, "RIFF"); dv.setUint32(4, 36 + pcm.length * 2, true); str(8, "WAVEfmt "); dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true);
-  dv.setUint32(24, sr, true); dv.setUint32(28, sr * 2, true); dv.setUint16(32, 2, true); dv.setUint16(34, 16, true); str(36, "data"); dv.setUint32(40, pcm.length * 2, true);
-  pcm.forEach((v, i) => dv.setInt16(44 + i * 2, Math.max(-1, Math.min(1, v)) * 0x7fff, true));
-  const u8 = new Uint8Array(dv.buffer); let bin = ""; for (let i = 0; i < u8.length; i += 8192) bin += String.fromCharCode.apply(null, u8.subarray(i, i + 8192));
-  return { b64: btoa(bin), sec: dec.duration };
-}
-$("aiMic").onclick = async () => {
-  if (rec) { rec.stop(); return; }
-  if (!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder)) { toast("Микрофон тут недоступен — напиши текстом"); return; }
-  let stream; try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); } catch (e) { toast("Нет доступа к микрофону — напиши текстом"); return; }
-  const chunks = [], mr = new MediaRecorder(stream); rec = mr; $("aiMic").classList.add("rec"); toast("Говори… нажми 🎤 ещё раз, когда закончишь", 2500);
-  const timer = setTimeout(() => mr.state === "recording" && mr.stop(), 25000);
-  mr.ondataavailable = (e) => chunks.push(e.data);
-  mr.onstop = async () => {
-    clearTimeout(timer); stream.getTracks().forEach((t) => t.stop()); rec = null; $("aiMic").classList.remove("rec");
-    try { const w = await toWav(await new Blob(chunks).arrayBuffer()); if (w.sec < 0.5) { toast("Слишком коротко"); return; } aiAsk("", w.b64); }
-    catch (e) { toast("Не получилось обработать запись — напиши текстом"); }
-  };
-  mr.start();
-};
 
 // ---------------------------------------------------------------- приглашение, помощь
 const inviteLink = () => (BOT ? `https://t.me/${BOT}?start=room_${ROOM}` : location.href);
