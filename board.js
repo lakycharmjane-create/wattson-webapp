@@ -67,7 +67,7 @@ function connect() {
       case "add": objs.set(m.o.id, m.o); if (m.o.fipi) setCur(m.o.fipi); if (m.focus) focusOn(m.o); invalidate(); break;
       case "checked":
         if (m.ok === null) toast(`Для задачи ${m.code} нет эталонного ответа`);
-        else { toast(`${m.ok ? "✅" : "❌"} ${m.who}: ${m.ok ? "верно!" : "неверно, попробуй ещё"}${m.v === -1 ? " (ответ в базе ФИПИ не подтвердил — возможна ошибка в эталоне)" : ""}`, m.v === -1 ? 6000 : 3500); if (m.ok && m.who === myName) { solved.add(m.code); if (TASKS) renderTasks(); } if (ai.on && !ai.busy && !ai.thinking) aiRun(() => aiReact(m.ok ? "happy" : "oops", m.ok ? "Есть! Так держать 😺" : "Хм, не сходится. Хочешь, разберём вместе? Напиши мне.")); }
+        else { toast(`${m.ok ? "✅" : "❌"} ${m.who}: ${m.ok ? "верно!" : "неверно, попробуй ещё"}${m.v === -1 ? " (ответ в базе ФИПИ не подтвердил — возможна ошибка в эталоне)" : ""}`, m.v === -1 ? 6000 : 3500); if (m.ok && m.who === myName) { solved.add(m.code); if (TASKS) renderTasks(); } if (ai.on && !ai.busy && !ai.thinking) { if (!m.ok && m.who === myName) aiErrOffer(); else aiRun(() => aiReact(m.ok ? "happy" : "oops", m.ok ? "Есть! Так держать 😺" : "Хм, не сходится. Хочешь, разберём вместе? Напиши мне.")); } }
         break;
       case "revealed": toast(`Ответ к ${m.code}: ${m.answer}  (${m.v === 1 ? "подтверждён ФИПИ ✔" : m.v === -1 ? "ФИПИ НЕ подтвердил — сомнительный" : "эталон от ИИ, не официальный"})`, 9000); break;
       case "ai_join": aiJoin(); if (m.who === myName) aiHello(); else aiLog("sys", "🐱 Ваттсон на доске"); break;
@@ -80,6 +80,7 @@ function connect() {
         invalidate(); break;
       case "cat": if (!aiLeader()) { ai.lastPos = [m.x, m.y]; ai.tx = m.x; ai.ty = m.y; ai.k = 6; invalidate(); } break;
       case "cat_doodle": if (ai.on && !aiLeader()) aiRun(() => aiDoodleShow(m)); break;
+      case "diary": renderDiary(m); break;
       case "ai_wait": aiLog("sys", m.n === 1 && m.now ? `Ваттсон отвечает ${m.now} — ты следующий ✋` : `Твой вопрос в очереди, впереди: ${m.n} ⏳`); break;
       case "ai_act": aiRun(() => aiAct(m)); break;
       case "ai_err": aiFail(m.why, m.who); break;
@@ -626,12 +627,12 @@ $("load").onclick = loadFipi;
 $("code").addEventListener("keydown", (e) => { if (e.key === "Enter") loadFipi(); if (e.key === "Escape") $("code").blur(); e.stopPropagation(); });
 
 // ---------------------------------------------------------------- проверка ответа
-function setCur(code) { curCode = code; $("ans").style.display = code ? "flex" : "none"; $("ansCode").textContent = code ? "Задача " + code : ""; }
+function setCur(code) { curCode = code; try { refreshChips(); } catch (e) {} $("ans").style.display = code ? "flex" : "none"; $("ansCode").textContent = code ? "Задача " + code : ""; }
 function checkAnswer() {
   const a = $("ansIn").value.trim();
   if (!curCode || !a) { $("ansIn").focus(); return; }
   if (!online) { toast("Нет связи с сервером"); return; }
-  send({ t: "check", code: curCode, answer: a }); $("ansIn").value = "";
+  send({ t: "check", code: curCode, answer: a, uid: UID }); lastAns = a; $("ansIn").value = "";
 }
 $("ansGo").onclick = checkAnswer;
 $("ansIn").addEventListener("keydown", (e) => { if (e.key === "Enter") checkAnswer(); if (e.key === "Escape") $("ansIn").blur(); e.stopPropagation(); });
@@ -665,7 +666,7 @@ async function toggleTasks(on) {
   const p = $("tasks"), show = on ?? p.style.display === "none";
   p.style.display = show ? "flex" : "none";
   if (!show) return;
-  toggleCp(false);
+  toggleCp(false); $("diary").style.display = "none";
   if (!TASKS) {
     $("tlist").innerHTML = "<div class='ti'>Загружаю список…</div>";
     try { TASKS = await (await fetch(httpBase() + "/tasks")).json(); } catch (e) { $("tlist").innerHTML = "<div class='ti'>Не удалось загрузить список задач</div>"; return; }
@@ -709,6 +710,38 @@ $("trandom").onclick = () => {
   if (pool.length) loadCode(pool[Math.floor(Math.random() * pool.length)].c);
 };
 
+// ---------------------------------------------------------------- 🔊 Озвучка: голос самого устройства (speechSynthesis) — запросов к ИИ и токенов не тратит
+const SAY_LAT = { a: "а", b: "бэ", c: "цэ", d: "дэ", e: "э", f: "эф", g: "жэ", h: "аш", i: "и", j: "йот", k: "ка", l: "эль", m: "эм", n: "эн", o: "о", p: "пэ", q: "ку", r: "эр", s: "эс", t: "тэ", u: "у", v: "вэ", w: "дубль вэ", x: "икс", y: "игрек", z: "зэт" };
+const SAY_SYM = { Δ: "дельта", δ: "дельта", ν: "ню", ρ: "ро", λ: "лямбда", μ: "мю", ω: "омега", Ω: "омега", α: "альфа", β: "бета", γ: "гамма", ε: "эпсилон", η: "эта", π: "пи", σ: "сигма", τ: "тау", φ: "фи", θ: "тета", "°": "градусов", "%": "процентов", "√": "корень из", "≈": "примерно равно", "≤": "меньше или равно", "≥": "больше или равно", "≠": "не равно", "±": "плюс минус", "=": "равно", "+": "плюс", "−": "минус", "·": "умножить на", "*": "умножить на", "×": "умножить на", "/": "делить на", "→": "" };
+const SAY_ORD = { 0: "нулевое", 1: "первое", 2: "второе", 3: "третье", 4: "четвёртое", 5: "пятое", 6: "шестое" };
+const SAY_UNITS = [["м/с²", "метров на секунду в квадрате"], ["км/ч", "километров в час"], ["м/с", "метров в секунду"], ["кг/м³", "килограммов на кубический метр"], ["Дж", "джоулей"], ["Вт", "ватт"], ["Па", "паскалей"], ["Гц", "герц"], ["Ом", "ом"], ["Кл", "кулонов"], ["кг", "килограммов"], ["км", "километров"], ["см", "сантиметров"], ["мм", "миллиметров"], ["мин", "минут"], ["Н", "ньютонов"], ["м", "метров"], ["с", "секунд"], ["г", "граммов"], ["ч", "часов"], ["К", "кельвинов"], ["А", "ампер"], ["В", "вольт"]];
+function speakable(raw) {                               // текст кота → то, что можно произнести: индексы, степени, греческие буквы, знаки, единицы
+  let t = texify(String(raw)).replace(/[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}\uFE0F\u200D]/gu, "");
+  for (const [u, w] of SAY_UNITS) t = t.replace(new RegExp("([0-9]) ?" + u + "(?![А-Яа-яЁёA-Za-z0-9²³])", "g"), "$1 " + w + " ");
+  t = richRuns(t).map((r) => {
+    if (r.m === 1) return " " + (/^[0-9]+$/.test(r.s) && SAY_ORD[r.s] ? SAY_ORD[r.s] : r.s) + " ";
+    if (r.m === 2) return " " + (r.s === "2" ? "в квадрате" : r.s === "3" ? "в кубе" : r.s === "-1" || r.s === "−1" ? "в минус первой степени" : r.s === "-2" || r.s === "−2" ? "в минус второй степени" : "в степени " + r.s) + " ";
+    return r.s;
+  }).join("");
+  t = t.replace(/²/g, " в квадрате ").replace(/³/g, " в кубе ");
+  t = t.replace(/(?<=[0-9A-Za-z)] ?)-(?= ?[0-9A-Za-z(])/g, " минус ").replace(/(^|\s)-(?=[0-9])/g, "$1минус ");
+  t = t.replace(/[Δδνρλμ ωΩαβγεηπστφθ°%√≈≤≥≠±=+−·*×/→]/gu, (c) => (c === " " ? " " : " " + SAY_SYM[c] + " "));
+  t = t.replace(/[A-Za-z]/g, (c) => " " + SAY_LAT[c.toLowerCase()] + " ").replace(/[()[\]{}_^]/g, " ");
+  return t.replace(/\s+/g, " ").trim();
+}
+const TTS = "speechSynthesis" in window && "SpeechSynthesisUtterance" in window;
+let ttsVoice = null, ttsAuto = false;
+function ttsPick() { if (!TTS) return; ttsVoice = speechSynthesis.getVoices().find((v) => /^ru/i.test(v.lang)) || null; document.body.classList.toggle("tts", !!ttsVoice); }
+function speak(text) {
+  if (!TTS || !ttsVoice) return;
+  speechSynthesis.cancel();
+  for (const sentence of speakable(text).split(/(?<=[.!?…])\s+/)) {
+    for (const part of sentence.match(/.{1,180}(?:\s|$)/g) || []) {              // длинные куски браузеры обрывают — режем по предложениям и по ~180 знаков
+      const u = new SpeechSynthesisUtterance(part.trim()); if (!u.text) continue;
+      u.lang = "ru-RU"; u.voice = ttsVoice; u.rate = 1; speechSynthesis.speak(u);
+    }
+  }
+}
 // ---------------------------------------------------------------- 🐱 Ваттсон (ИИ-помощник)
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // запасной «переводчик» LaTeX в обычный текст — на случай, если модель всё же напишет $\frac{a}{b}$
@@ -730,7 +763,7 @@ let aiQ = Promise.resolve(), aiBusyTimer = 0;
 const aiRun = (fn) => (aiQ = aiQ.then(() => Promise.race([fn(), sleep(30000)])).catch(() => {}));   // очередь не должна зависать навсегда
 function aiLog(cls, text) {
   if (cls === "cat") text = texify(text);
-  const d = document.createElement("div"); d.className = cls; if (cls === "cat") d.innerHTML = richHTML(text); else d.textContent = text;
+  const d = document.createElement("div"); d.className = cls; if (cls === "cat") { d.dataset.raw = text; d.innerHTML = richHTML(text) + (TTS ? ' <span class="spk" title="Прочитать вслух">🔊</span>' : ""); } else d.textContent = text;
   const lg = $("ailog"); lg.appendChild(d); lg.scrollTop = lg.scrollHeight; return d;
 }
 // ---- кот всегда рядом с каким-нибудь игроком: держится в радиусе от него с небольшим отставанием, а со временем (или когда спросит другой) переходит к другому
@@ -791,7 +824,7 @@ function aiFail(why, who) {
 function aiReact(mood, text) { ai.mood = mood; aiLog("cat", text); return aiSay(text); }
 async function aiAct(m) {
   aiBusyDone(); ai.thinking = false; ai.busy = true; ai.mood = m.mood || "chill";
-  aiLog("cat", m.say);
+  aiLog("cat", m.say); if (ttsAuto && m.from === myName) speak(m.say);
   const marks = (m.marks || []).filter((o) => o && o.p && o.p.length);
   marks.forEach((o) => { o._n = 0; objs.set(o.id, o); });
   (m.texts || []).forEach((o) => { if (o && o.id) objs.set(o.id, o); });          // надписи кота появляются сразу
@@ -949,7 +982,9 @@ function drawCat() {
 function toggleAi(on) {
   const p = $("aip"), show = on ?? p.style.display !== "flex";
   p.style.display = show ? "flex" : "none";
+  if (!show && TTS) speechSynthesis.cancel();
   if (show) {
+    $("diary").style.display = "none";
     if (!ai.on) send({ t: "ai_join" }); if (!online) toast("Нет связи с сервером");
     if (!aiKey && !aiTrial) showSetup(); else { aiSetup = false; aiGate(); setTimeout(() => $("aiIn").focus(), 50); }
   }
@@ -989,6 +1024,15 @@ $("aiKeyIn").addEventListener("keydown", (e) => { if (e.key === "Enter") $("aiKe
 $("aiBtn").onclick = () => toggleAi();
 $("aiClose").onclick = () => toggleAi(false);
 $("aiClean").onclick = () => { const ids = [...objs.values()].filter((o) => o.ai).map((o) => o.id); ids.forEach((id) => delObj(id, false)); toast(ids.length ? "Пометки Ваттсона стёрты" : "Пометок нет"); };
+if (TTS) {
+  ttsPick(); try { speechSynthesis.addEventListener("voiceschanged", ttsPick); } catch (e) {} setTimeout(ttsPick, 800); setTimeout(ttsPick, 2500);
+  ttsAuto = lsGet("wv") === "1"; $("aiVoice").textContent = ttsAuto ? "🔊" : "🔇";
+  $("aiVoice").onclick = () => {                         // автоматически читать ответы вслух; первый вызов «будит» синтезатор (iOS требует нажатия)
+    ttsAuto = !ttsAuto; lsSet("wv", ttsAuto ? "1" : ""); $("aiVoice").textContent = ttsAuto ? "🔊" : "🔇";
+    if (ttsAuto) { try { speechSynthesis.speak(new SpeechSynthesisUtterance(" ")); } catch (e) {} toast("Ответы кота будут читаться вслух"); } else speechSynthesis.cancel();
+  };
+  $("ailog").addEventListener("click", (e) => { const k = e.target.closest(".spk"); if (k && k.parentElement.dataset.raw) speak(k.parentElement.dataset.raw); });
+}
 function aiBusyDone() { clearTimeout(aiBusyTimer); aiBusyTimer = 0; }
 function snapshot() {
   draw();
@@ -997,18 +1041,85 @@ function snapshot() {
   c.getContext("2d").drawImage(cv, 0, 0, c.width, c.height);
   return c.toDataURL("image/jpeg", 0.72);
 }
-function aiAsk(text) {
+function aiAsk(text, mode, answer) {
   if (!online) { toast("Нет связи с сервером"); return; }
   if (!aiKey && !aiTrial) { showSetup(); return; }
   if (aiBusyTimer) { toast("Ваттсон ещё думает 😼"); return; }
   if (!ai.on) send({ t: "ai_join" });
   ai.nudges = 0; ai.lastAct = performance.now();
   aiBusyTimer = setTimeout(() => { aiBusyTimer = 0; if (ai.thinking) aiFail("fail"); }, 120000);
-  send({ t: "ai", text, img: snapshot(), view: { x: cam.x, y: cam.y, z: cam.z, w: VW, h: VH }, code: curCode, key: aiKey, uid: UID });
+  send({ t: "ai", text, img: snapshot(), view: { x: cam.x, y: cam.y, z: cam.z, w: VW, h: VH }, code: curCode, key: aiKey, uid: UID, mode: mode || "", answer: answer || "" });
+}
+// быстрые кнопки над строкой ввода: проверка решения, «что дано», формула, единицы и подсказка по нарастающей (1 → 2 → 3)
+const hintLv = {};
+const nextHint = () => Math.min(3, (hintLv[curCode || ""] || 0) + 1);
+function refreshChips() { const b = $("qHint"); if (b) b.textContent = `💡 Подсказка ${nextHint()}`; }
+$("qCheck").onclick = () => aiAsk("🔍 Проверь моё решение", "check");
+$("qGiven").onclick = () => aiAsk("📋 Что дано?", "given");
+$("qFormula").onclick = () => aiAsk("🧮 Какая формула?", "formula");
+$("qUnits").onclick = () => aiAsk("📏 Проверь единицы", "units");
+$("qScheme").onclick = () => aiAsk("🖼 Схема к задаче", "scheme");
+$("qForces").onclick = () => aiAsk("➡ Проверь силы", "forces");
+$("qFormat").onclick = () => aiAsk("📐 Оформление как на ЕГЭ", "format");
+$("qHint").onclick = () => { const lv = nextHint(); hintLv[curCode || ""] = lv; aiAsk(`💡 Подсказка ${lv}`, "hint" + lv); refreshChips(); };
+refreshChips();
+// после неверного ответа кот предлагает найти ошибку (тип ошибки + наводящий вопрос)
+let lastAns = "";
+function aiErrOffer() {
+  const t = "Не сошлось 😿 Хочешь, найдём, где ошибка?";
+  aiLog("cat", t); aiRun(() => aiReact("oops", t));
+  if ($("aip").style.display === "flex" && !aiSetup && (aiKey || aiTrial)) {
+    const row = document.createElement("div"); row.className = "offer";
+    const mk = (label, fn) => { const b = document.createElement("button"); b.className = "btn ghost"; b.textContent = label; b.onclick = () => { row.remove(); fn(); }; row.appendChild(b); };
+    mk("Да, найдём", () => aiAsk("🔎 Разбери мою ошибку", "error", lastAns));
+    mk("Сам", () => { const r = "Хорошо, пробуй ещё 😺"; aiLog("cat", r); aiRun(() => aiSay(r)); });
+    $("ailog").appendChild(row); $("ailog").scrollTop = $("ailog").scrollHeight;
+    setTimeout(() => row.remove(), 90000);
+  }
 }
 function aiSend() { const t = $("aiIn").value.trim(); if (!t) return; $("aiIn").value = ""; aiAsk(t); }
 $("aiGo").onclick = aiSend;
 $("aiIn").addEventListener("keydown", (e) => { if (e.key === "Enter") aiSend(); if (e.key === "Escape") $("aiIn").blur(); e.stopPropagation(); });
+
+// ---------------------------------------------------------------- 📓 Дневник ошибок: слабые темы, похожие задачи, повторение формул, итоги варианта
+const FORMULA_UNITS = new Set(["1.1", "1.2", "1.3", "1.4", "1.5", "2.1", "2.2", "3.1", "3.2"]);   // темы, для которых есть «Повторение формул»
+function openFormulas(u) { const url = new URL("index.html?r=" + u, location.href).href; if (tg && tg.openLink) tg.openLink(url); else window.open(url, "_blank", "noopener"); }
+function toggleDiary(on) {
+  const p = $("diary"), show = on ?? p.style.display === "none";
+  p.style.display = show ? "flex" : "none";
+  if (!show) return;
+  toggleCp(false); toggleTasks(false); toggleAi(false);
+  $("dbody").textContent = "Загружаю…"; send({ t: "diary_get", uid: UID, codes: variant });
+}
+$("diaryBtn").onclick = () => toggleDiary(); $("dclose").onclick = () => toggleDiary(false);
+function renderDiary(m) {
+  const box = $("dbody"); box.textContent = "";
+  const add = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; box.appendChild(e); return e; };
+  const btn = (parent, label, fn, cls = "btn ghost") => { const b = document.createElement("button"); b.className = cls; b.textContent = label; b.onclick = fn; parent.appendChild(b); return b; };
+  const t = m.totals || { tries: 0, wrong: 0, solved: 0 };
+  if (!t.tries) add("div", "dnote", "Пока пусто. Проверь ответ на любой задаче (поле «Твой ответ») — и здесь появятся слабые темы и подборка задач для повторения.");
+  else add("div", "dnote", `Попыток: ${t.tries} · решено задач: ${t.solved} · ошибок: ${t.wrong}`);
+  if ((m.topics || []).length) {
+    add("div", "dh", "Где чаще всего ошибаешься");
+    for (const tp of m.topics) {
+      const row = add("div", "drow"); const l = document.createElement("div"); l.className = "dl"; l.textContent = `${tp.name} · ошибок: ${tp.wrong}`; row.appendChild(l);
+      const acts = document.createElement("div"); acts.className = "da"; row.appendChild(acts);
+      const sg = (m.suggest || []).find((x) => x.name === tp.name);
+      if (sg) btn(acts, "🎯 Похожая задача", () => { loadCode(sg.c); toggleDiary(false); });
+      if (FORMULA_UNITS.has(tp.u)) btn(acts, "📖 Формулы", () => openFormulas(tp.u));
+    }
+  }
+  if (variant.length) {
+    add("div", "dh", "Вариант");
+    const chips = add("div", "dchips");
+    for (const c of variant) {
+      const st = (m.stats || {})[c] || {}; const b = document.createElement("button");
+      b.className = "dchip " + (st.ok ? "ok" : st.wrong ? "bad" : ""); b.textContent = (st.ok ? "✅ " : st.wrong ? "❌ " : "· ") + c; b.onclick = () => { loadCode(c); toggleDiary(false); }; chips.appendChild(b);
+    }
+    const b = btn(box, "📊 Пусть кот разберёт мой вариант", () => { toggleDiary(false); toggleAi(true); aiAsk("📊 Разбери мой вариант", "variant"); }, "btn");
+    if (!t.tries) b.disabled = true;
+  }
+}
 
 // ---------------------------------------------------------------- приглашение, помощь
 const inviteLink = () => (BOT ? `https://t.me/${BOT}?start=room_${ROOM}` : location.href);
@@ -1038,7 +1149,7 @@ window.addEventListener("keydown", (e) => {
   if (k === "i") { $("file").click(); return; }
   if (k === "f") { e.preventDefault(); $("code").focus(); return; }
   if (k === "?" || (e.code === "Slash" && e.shiftKey) || e.key === "F1") { e.preventDefault(); toggleHelp(); return; }
-  if (k === "escape") { toggleHelp(false); toggleCp(false); toggleTasks(false); toggleAi(false); selected = null; invalidate(); return; }
+  if (k === "escape") { toggleDiary(false); toggleHelp(false); toggleCp(false); toggleTasks(false); toggleAi(false); selected = null; invalidate(); return; }
   if (k === "delete" || k === "backspace") { if (selected) { e.preventDefault(); delObj(selected); } return; }
   if (e.code === "Digit1" && e.shiftKey) { e.preventDefault(); fitAll(); return; }
   if (/^[1-7]$/.test(k)) { setColor(PALETTE[+k - 1]); return; }

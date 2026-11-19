@@ -34,6 +34,12 @@
     #cprev { width: 28px; height: 28px; border-radius: 50%; box-shadow: 0 0 0 1px var(--line); }
     .cprow b { flex: 1; font-size: 13px; color: var(--muted); }
     #tasks { right: 12px; top: 64px; width: 360px; max-width: calc(100% - 24px); max-height: calc(100% - 140px); padding: 10px; display: flex; flex-direction: column; gap: 6px; }
+    #diary { right: 12px; top: 64px; width: 360px; max-width: calc(100% - 24px); max-height: calc(100% - 140px); padding: 10px; display: flex; flex-direction: column; gap: 6px; }
+    #diary .th { display: flex; align-items: center; gap: 8px; } #diary .th b { flex: 1; }
+    #dbody { overflow-y: auto; display: flex; flex-direction: column; gap: 8px; font-size: 13.5px; line-height: 1.35; }
+    #dbody .dnote { color: var(--muted); } #dbody .dh { font-weight: 800; margin-top: 4px; }
+    #dbody .drow { border-bottom: 1px solid var(--line); padding-bottom: 7px; display: flex; flex-direction: column; gap: 5px; } #dbody .da { display: flex; gap: 6px; flex-wrap: wrap; } #dbody .da .btn { height: 30px; font-size: 12.5px; padding: 0 9px; }
+    #dbody .dchips { display: flex; flex-wrap: wrap; gap: 5px; } .dchip { border: 0; border-radius: 12px; padding: 5px 9px; font: 700 12px system-ui; background: var(--bg); color: var(--muted); cursor: pointer; } .dchip.ok { background: #dff5df; color: #1c6b2a; } .dchip.bad { background: #fde1e1; color: #a02525; }
     #tasks .th { display: flex; align-items: center; gap: 8px; } #tasks .th b { flex: 1; } #tcount { font-size: 12px; color: var(--muted); }
     #tq { height: 34px; border: 2px solid var(--line); border-radius: 9px; padding: 0 10px; font: inherit; font-size: 14px; background: var(--bg); color: var(--text); outline: none; }
     #chips { display: flex; flex-wrap: wrap; gap: 4px; }
@@ -86,6 +92,7 @@
       #top input { width: 110px; }
       #ans { bottom: 76px; max-width: calc(100% - 20px); }
       #cp { left: 50%; top: auto; bottom: 80px; transform: translateX(-50%); }
+      #diary { top: 110px; right: 12px; left: 12px; width: auto; max-height: calc(100% - 200px); }
       #tasks { top: 110px; right: 12px; left: 12px; width: auto; max-height: calc(100% - 200px); }
       #toast { bottom: 130px; }
     }
@@ -97,6 +104,9 @@
     #ailog .me { align-self: flex-end; background: var(--blue-bg); } #ailog .cat { align-self: flex-start; background: var(--bg); } #ailog .sys { align-self: center; color: var(--muted); font-size: 12px; background: none; }
     #ailog .offer { background: none; padding: 0; display: flex; gap: 6px; max-width: 100%; } #ailog .offer .btn { height: 32px; font-size: 13px; }
     #ailog sub, #ailog sup, #aib sub, #aib sup { font-size: .72em; line-height: 0; }
+    #aiq { display: flex; gap: 5px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: thin; } #aiq .btn { flex: none; height: 30px; font-size: 12.5px; padding: 0 9px; white-space: nowrap; }
+    #aip.setup #aiq { display: none; }
+    .spk { display: none; cursor: pointer; opacity: .65; margin-left: 4px; } body.tts .spk { display: inline; } #aiVoice { display: none; } body.tts #aiVoice { display: inline-flex; }
     #airow { display: flex; gap: 6px; align-items: center; }
     #aiIn { flex: 1; height: 36px; border: 2px solid var(--line); border-radius: 9px; padding: 0 10px; font: inherit; font-size: 14px; background: var(--bg); color: var(--text); outline: none; min-width: 0; }
     #aiIn:focus { border-color: var(--blue); }
@@ -152,6 +162,7 @@
     <input id="code" maxlength="12" placeholder="Код ФИПИ" autocomplete="off" spellcheck="false" title="Код задачи ФИПИ (F)">
     <button class="btn" id="load">Загрузить</button>
     <button class="btn" id="aiBtn" title="Позвать кота Ваттсона — ИИ-помощника">🐱 Помощь ИИ</button>
+    <button class="btn ghost" id="diaryBtn" title="Дневник ошибок">📓 Дневник</button>
     <button class="btn ghost" id="tasksBtn" title="Список задач (G)">📚 Задачи</button>
     <button class="btn ghost sq" id="helpBtn" title="Горячие клавиши (?)">?</button>
   </div>
@@ -171,6 +182,10 @@
   </div>
 
   <!-- список задач ФИПИ -->
+  <div class="panel" id="diary" style="display:none">
+    <div class="th"><b>📓 Дневник ошибок</b><button class="btn ghost sq" id="dclose">✕</button></div>
+    <div id="dbody"></div>
+  </div>
   <div class="panel" id="tasks" style="display:none">
     <div class="th"><b>📚 Задачи</b><span id="tcount"></span><button class="btn ghost sq" id="tclose">✕</button></div>
     <input id="tq" placeholder="Поиск по тексту или коду" autocomplete="off">
@@ -195,7 +210,7 @@
 
   <!-- 🐱 Ваттсон: окно общения -->
   <div class="panel" id="aip">
-    <div class="th"><img src="cat.png" alt=""><b>Ваттсон · ИИ-помощник</b><button class="btn ghost sq" id="aiKeyBtn" title="Ключ ИИ">🔑</button><button class="btn ghost sq" id="aiClean" title="Стереть красные пометки Ваттсона">🧽</button><button class="btn ghost sq" id="aiClose">✕</button></div>
+    <div class="th"><img src="cat.png" alt=""><b>Ваттсон · ИИ-помощник</b><button class="btn ghost sq" id="aiVoice" title="Читать ответы вслух">🔇</button><button class="btn ghost sq" id="aiKeyBtn" title="Ключ ИИ">🔑</button><button class="btn ghost sq" id="aiClean" title="Стереть красные пометки Ваттсона">🧽</button><button class="btn ghost sq" id="aiClose">✕</button></div>
     <div id="aisetup">
       <div class="big">🐱 Чтобы Ваттсон отвечал, нужен твой бесплатный ключ</div>
       <div class="hurry">⏱ Это дело <b>двух минут</b> — не закрывай окно и не откладывай: сделаешь один раз и дальше всё работает само.</div>
@@ -221,6 +236,7 @@
       <button class="btn ghost" id="aiTrial">Попробовать 5 запросов без своего ключа</button>
     </div>
     <div id="ailog"></div>
+    <div id="aiq"><button class="btn ghost" id="qCheck">🔍 Проверь решение</button><button class="btn ghost" id="qGiven">📋 Что дано?</button><button class="btn ghost" id="qFormula">🧮 Формула?</button><button class="btn ghost" id="qUnits">📏 Единицы</button><button class="btn ghost" id="qScheme">🖼 Схема</button><button class="btn ghost" id="qForces">➡ Силы</button><button class="btn ghost" id="qFormat">📐 Оформление</button><button class="btn ghost" id="qHint">💡 Подсказка 1</button></div>
     <div id="airow"><input id="aiIn" placeholder="Спроси Ваттсона…" autocomplete="off" maxlength="600"><button class="btn" id="aiGo">▶</button></div>
   </div>
   <div id="aib"></div>
@@ -249,6 +265,6 @@
       <p style="color:var(--muted);font-size:13px;margin:10px 0 0">Картинки и текст можно двигать, у картинки есть уголок для изменения размера. Файлы можно перетащить прямо на доску.</p>
     </div>
   </div>
-  <script src="board.js?v=22"></script>
+  <script src="board.js?v=26"></script>
 </body>
 </html>
