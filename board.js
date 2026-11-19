@@ -1129,7 +1129,9 @@ document.addEventListener("click", (e) => { const b = e.target.closest && e.targ
 window.addEventListener("keydown", (e) => {
   const tag = document.activeElement && document.activeElement.tagName;
   if (/INPUT|TEXTAREA/.test(tag)) return;
-  const k = e.key.toLowerCase(), ctrl = e.ctrlKey || e.metaKey;
+  // горячие клавиши работают в любой раскладке (на русской e.key = «з», «у»…), поэтому буквы и знаки берём по физической клавише
+  const byCode = { BracketLeft: "[", BracketRight: "]", Equal: "=", Minus: "-", NumpadAdd: "+", NumpadSubtract: "-" };
+  const k = (/^Key[A-Z]$/.test(e.code) ? e.code.slice(3).toLowerCase() : byCode[e.code]) || e.key.toLowerCase(), ctrl = e.ctrlKey || e.metaKey;
   if (e.code === "Space") { if (!spaceDown) { spaceDown = true; cv.style.cursor = "grab"; } e.preventDefault(); return; }
   if (ctrl && k === "z") { e.preventDefault(); e.shiftKey ? redoIt() : undo(); return; }
   if (ctrl && k === "y") { e.preventDefault(); redoIt(); return; }
