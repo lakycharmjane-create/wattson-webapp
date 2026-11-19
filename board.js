@@ -1066,6 +1066,29 @@ function renderDiary(m) {
   const t = m.totals || { tries: 0, wrong: 0, solved: 0 };
   if (!t.tries) add("div", "dnote", "Пока пусто. Проверь ответ на любой задаче (поле «Твой ответ») — и здесь появятся слабые темы и подборка задач для повторения.");
   else add("div", "dnote", `Попыток: ${t.tries} · решено задач: ${t.solved} · ошибок: ${t.wrong}`);
+  if ((m.map || []).length) {                           // карта освоения: каждая клетка — тема кодификатора; зелёное = решено верно, красное = ошибки, серое = не тронуто
+    add("div", "dh", "Карта освоения");
+    const info = document.createElement("div"); info.className = "dmapinfo"; info.textContent = "Нажми на клетку — покажу тему и предложу задачу.";
+    add("div", "dnote", "🟩 решено верно · 🟥 были ошибки · ⬜ не тронуто"); box.appendChild(info);
+    for (const sec of m.map) {
+      const pct = sec.total ? Math.round(100 * sec.ok / sec.total) : 0;
+      add("div", "dsec", `${sec.s} · решено ${sec.ok} из ${sec.total} (${pct}%)`);
+      const grid = add("div", "dgrid");
+      for (const t of sec.topics) {
+        const b = document.createElement("button"), a = 100 * t.ok / t.total, w = 100 * (t.ok + t.wrong) / t.total;
+        b.className = "dcell"; b.textContent = t.k || "·"; b.title = `${t.name}: верно ${t.ok}, с ошибками ${t.wrong}, не тронуто ${t.total - t.ok - t.wrong}`;
+        b.style.background = `linear-gradient(to right, #58cc02 ${a}%, #ff6b6b ${a}% ${w}%, var(--line) ${w}%)`;
+        b.onclick = () => {
+          info.textContent = ""; const l = document.createElement("div"); l.textContent = `${t.k} ${t.name}: верно ${t.ok}, с ошибками ${t.wrong}, не тронуто ${t.total - t.ok - t.wrong} (всего ${t.total})`; info.appendChild(l);
+          const acts = document.createElement("div"); acts.className = "da"; info.appendChild(acts);
+          const pool = t.wrongC.length ? t.wrongC : t.noneC;
+          if (pool.length) btn(acts, t.wrongC.length ? "🔁 Повторить ошибочную" : "🎯 Решить новую", () => { loadCode(pool[Math.floor(Math.random() * pool.length)]); toggleDiary(false); });
+          if (FORMULA_UNITS.has(t.u)) btn(acts, "📖 Формулы", () => openFormulas(t.u));
+        };
+        grid.appendChild(b);
+      }
+    }
+  }
   if ((m.topics || []).length) {
     add("div", "dh", "Где чаще всего ошибаешься");
     for (const tp of m.topics) {
