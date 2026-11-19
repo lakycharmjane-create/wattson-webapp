@@ -30,7 +30,7 @@ const cursors = new Map();                    // who → {x, y, c, t}
 let dirty = true;
 // 🐱 Ваттсон — ИИ-помощник: «живой» курсор-кот (мировые координаты), реплика-облачко, настроение
 const catImg = new Image(); catImg.src = "cat.png"; catImg.onload = () => { dirty = true; };
-const ai = { on: false, x: 0, y: 0, tx: 0, ty: 0, k: 4.5, mood: "chill", text: "", shown: 0, pause: 0, doneAt: 0, resolve: null, thinking: false, busy: false, nextIdle: 0, last: 0 };
+const ai = { lead: "", on: false, x: 0, y: 0, tx: 0, ty: 0, k: 4.5, mood: "chill", text: "", shown: 0, pause: 0, doneAt: 0, resolve: null, thinking: false, busy: false, nextIdle: 0, last: 0 };
 const invalidate = () => { dirty = true; };
 
 const screenToWorld = (sx, sy) => [sx / cam.z + cam.x, sy / cam.z + cam.y];
@@ -73,6 +73,13 @@ function connect() {
       case "ai_join": aiJoin(); if (m.who === myName) aiHello(); else aiLog("sys", "🐱 Ваттсон на доске"); break;
       case "ai_q": aiLog("me", m.who === myName ? m.text : `${m.who}: ${m.text}`); break;
       case "ai_think": aiThink(); break;
+      case "cat_lead":                                   // сервер назначил ведущего игрока: рядом с ним кот
+        ai.lead = m.who; if (m.x != null) ai.lastPos = [m.x, m.y];
+        if (aiLeader()) { ai.sx = undefined; ai.nextSwitch = performance.now() + 40000 + Math.random() * 50000; }
+        else if (ai.on && m.x != null) { ai.tx = m.x; ai.ty = m.y; ai.k = 6; }
+        invalidate(); break;
+      case "cat": if (!aiLeader()) { ai.lastPos = [m.x, m.y]; ai.tx = m.x; ai.ty = m.y; ai.k = 6; invalidate(); } break;
+      case "ai_wait": aiLog("sys", m.n === 1 && m.now ? `Ваттсон отвечает ${m.now} — ты следующий ✋` : `Твой вопрос в очереди, впереди: ${m.n} ⏳`); break;
       case "ai_act": aiRun(() => aiAct(m)); break;
       case "ai_err": aiFail(m.why, m.who); break;
       case "ai_left": aiLeft = m.n; aiLog("sys", m.n > 0 ? `Осталось пробных запросов: ${m.n}` : "Это был последний пробный запрос. Дальше — со своим ключом 🔑"); break;
@@ -693,11 +700,26 @@ function aiLog(cls, text) {
   const d = document.createElement("div"); d.className = cls; d.textContent = text;
   const lg = $("ailog"); lg.appendChild(d); lg.scrollTop = lg.scrollHeight; return d;
 }
+// ---- кот всегда рядом с каким-нибудь игроком: держится в радиусе от него с небольшим отставанием, а со временем (или когда спросит другой) переходит к другому
+const ptr = { x: 0, y: 0, t: 0 };                      // где у меня на доске указатель
+window.addEventListener("pointermove", (e) => { const r = cv.getBoundingClientRect(); const [wx, wy] = screenToWorld(e.clientX - r.left, e.clientY - r.top); ptr.x = wx; ptr.y = wy; ptr.t = performance.now(); }, { passive: true });
+function aiOn(x, y) { const [sx, sy] = worldToScreen(x, y); return sx > -20 && sy > -20 && sx < VW + 20 && sy < VH + 20; }   // точка сейчас на моём экране?
+function aiLeader() { return !ai.lead || ai.lead === myName; }          // кота сейчас веду я (он рядом со мной)?
+function aiAnchor() {                                   // рядом с чем держится кот: мой указатель, иначе центр моего экрана
+  if (performance.now() - ptr.t < 60000 && aiOn(ptr.x, ptr.y)) return [ptr.x, ptr.y];
+  return [cam.x + VW / 2 / cam.z, cam.y + VH / 2 / cam.z];
+}
+function aiSwitchFollow(now) {                         // пора передать кота следующему игроку — решает сервер
+  ai.nextSwitch = now + 40000 + Math.random() * 50000;
+  send({ t: "cat_next" });
+}
 function aiJoin() {
   if (ai.on) return;
   const z = cam.z; ai.on = true;
-  ai.x = ai.tx = cam.x + VW / z + 40 / z; ai.y = ai.ty = cam.y + VH / z * 0.2; ai.nextIdle = performance.now() + 2500;
-  aiMoveTo(cam.x + VW / z * 0.8, cam.y + VH / z * 0.22, 2.6); invalidate();
+  const [ax, ay] = aiAnchor();
+  if (ai.lastPos && !aiLeader()) { ai.x = ai.tx = ai.lastPos[0]; ai.y = ai.ty = ai.lastPos[1]; }
+  else { ai.x = ai.tx = cam.x + VW / z + 40 / z; ai.y = ai.ty = ay; if (aiLeader()) aiMoveTo(ax + 110 / z, ay - 60 / z, 2.6); }
+  ai.nextIdle = performance.now() + 2500; ai.nextSwitch = performance.now() + 40000 + Math.random() * 50000; invalidate();
 }
 function aiHello() { aiRun(async () => { await aiMoveTo(ai.tx, ai.ty, 2.6); ai.mood = "happy"; const t = "Мяу! Я Ваттсон 😺 Что решаем? Пиши, что у тебя не получается."; aiLog("cat", t); await aiSay(t); ai.mood = "chill"; }); }
 const aiMoveTo = (x, y, k = 4.5) => new Promise((res) => {
@@ -710,19 +732,16 @@ function aiSay(text) {
   ai.text = text; ai.shown = 0; ai.pause = 0.3; ai.doneAt = 0; invalidate();
   return new Promise((r) => { ai.resolve = r; });
 }
-function aiLook() {                                   // «читает» то, что ученик сейчас написал, иначе — условие
-  const mine = [...objs.values()].filter((o) => !o.ai && o.type === "stroke").slice(-40);
-  let b = null;
-  if (mine.length) { let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9; mine.forEach((o) => { const q = bbox(o); x0 = Math.min(x0, q.x); y0 = Math.min(y0, q.y); x1 = Math.max(x1, q.x + q.w); y1 = Math.max(y1, q.y + q.h); }); b = { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }; }
-  else { const t = [...objs.values()].reverse().find((o) => o.fipi); if (t) b = bbox(t); }
-  if (b) aiMoveTo(b.x + b.w * (0.3 + Math.random() * 0.4), b.y + b.h * (0.3 + Math.random() * 0.4), 2.8);
+function aiLook() {
+  if (!aiLeader()) return;
+  const [ax, ay] = aiAnchor(); aiMoveTo(ax + (60 + Math.random() * 60) / cam.z, ay + (30 + Math.random() * 40) / cam.z, 2.8);
 }
 function aiThink() { aiJoin(); ai.thinking = true; ai.busy = true; ai.mood = "think"; ai.text = ""; aiLook(); invalidate(); }
 function aiFail(why, who) {
   if (/^(badkey|quota)$/.test(why) && who && who !== myName) why = "fail";   // чужой ключ — не моё дело
   aiBusyDone(); ai.thinking = false; ai.busy = false; ai.mood = "oops";
   const t = { fast: "Не так быстро, я не успеваю мурлыкать 😼", limit: "На сегодня пробные запросы закончились. Подключи свой ключ или приходи завтра!", nokey: "Меня ещё не подключили на сервере 🙈",
-    fail: "Мяу, что-то заглючило. Спроси ещё раз.", badkey: "Ключ не подошёл 🙈 Проверь, что скопировал его целиком, и вставь заново.", quota: "У твоего ключа сейчас кончился лимит запросов 😿 Подожди минутку (или до завтра) и спроси ещё раз.", trial_over: "Пять пробных запросов закончились 😺 Дальше — со своим ключом, это две минуты!" }[why] || "Мяу, что-то пошло не так.";
+    fail: "Мяу, что-то заглючило. Спроси ещё раз.", busy: "Твой вопрос уже в очереди — подожди ответа 😺", full: "Ко мне очередь из пяти человек 🙀 Подожди немного и спроси ещё раз.", badkey: "Ключ не подошёл 🙈 Проверь, что скопировал его целиком, и вставь заново.", quota: "У твоего ключа сейчас кончился лимит запросов 😿 Подожди минутку (или до завтра) и спроси ещё раз.", trial_over: "Пять пробных запросов закончились 😺 Дальше — со своим ключом, это две минуты!" }[why] || "Мяу, что-то пошло не так.";
   aiLog("cat", t); aiRun(() => aiSay(t));
   if (why === "badkey") { keySave(""); showSetup("Ключ не подошёл — вставь его заново."); }
   else if (why === "trial_over") { aiTrial = false; aiLeft = 0; lsSet("wt", ""); lsSet("wtd", "1"); showSetup("Пробные запросы закончились."); }
@@ -739,15 +758,14 @@ async function aiAct(m) {
     if (sx < 40 || sy < 40 || sx > VW - 40 || sy > VH - 40) { cam.x = m.focus[0] - VW / 2 / cam.z; cam.y = m.focus[1] - VH / 2 / cam.z; }
   }
   invalidate();
-  if (m.at) await aiMoveTo(m.at[0], m.at[1], 3.6);
+  if (aiLeader() && m.at && aiOn(m.at[0], m.at[1])) await aiMoveTo(m.at[0], m.at[1], 3.6);          // показывает лапой, только если место на экране
   await sleep(250 + Math.random() * 300);
   const talk = aiSay(m.say);
   for (const o of marks) {
-    await aiMoveTo(o.p[0][0], o.p[0][1], 6); await sleep(150);
+    if (aiLeader() && aiOn(o.p[0][0], o.p[0][1])) { await aiMoveTo(o.p[0][0], o.p[0][1], 6); await sleep(150); }
     await aiReveal(o); await sleep(250);
   }
   await talk;
-  if (marks.length) { const l = marks[marks.length - 1].p, e = l[l.length - 1]; aiMoveTo(e[0] + 90 / cam.z, e[1] + 60 / cam.z, 2.4); }
   ai.busy = false; ai.mood = "chill"; ai.lastAct = performance.now();
 }
 function aiReveal(o) {
@@ -755,18 +773,17 @@ function aiReveal(o) {
     const n = o.p.length, dur = Math.max(500, n * 18), t0 = performance.now();
     (function f() {
       const q = Math.min(1, (performance.now() - t0) / dur); o._n = Math.max(1, Math.ceil(q * n));
-      const p = o.p[Math.min(n - 1, o._n - 1)]; ai.x = ai.tx = p[0]; ai.y = ai.ty = p[1]; invalidate();
+      const p = o.p[Math.min(n - 1, o._n - 1)]; if (aiLeader() && aiOn(p[0], p[1])) { ai.x = ai.tx = p[0]; ai.y = ai.ty = p[1]; } invalidate();
       if (q < 1) requestAnimationFrame(f); else { delete o._n; res(); }
     })();
   });
 }
-function aiIdlePick(now) {                            // поведение «от нечего делать»: глазеет на курсор ученика, на условие, просто бродит
-  const z = cam.z, r = Math.random(), cs = [...cursors.values()].filter((c) => now - c.t < 3000);
-  const task = [...objs.values()].reverse().find((o) => o.fipi);
-  if (cs.length && r < 0.5) { ai.tx = cs[0].x + 70 / z; ai.ty = cs[0].y + 40 / z; ai.k = 2.2; }
-  else if (task && r < 0.8) { ai.tx = task.x + Math.random() * task.w; ai.ty = task.y + Math.random() * task.h; ai.k = 2.5; }
-  else { ai.tx += (Math.random() - 0.5) * 160 / z; ai.ty += (Math.random() - 0.5) * 120 / z; ai.k = 2; }
-  ai.nextIdle = now + 2500 + Math.random() * 4500;
+function aiIdlePick(now) {                            // бродит рядом с игроком в радиусе ~170 px; отстал — догоняет
+  const z = cam.z, [ax, ay] = aiAnchor(), d = Math.hypot(ai.x - ax, ai.y - ay) * z, far = d > 260;
+  const ang = Math.random() * 6.283, rad = (far ? 90 : 80 + Math.random() * 90) / z;
+  ai.tx = ax + Math.cos(ang) * rad; ai.ty = ay + Math.sin(ang) * rad * 0.7;
+  ai.k = far ? (d > 1200 ? 5 : 2.4) : 1.5 + Math.random() * 0.8;
+  ai.lastPick = now; ai.nextIdle = now + 2500 + Math.random() * 4500;
 }
 // ---- кот сам проявляет инициативу: ученик давно молчит → спрашивает «тебе подсказать?» или рисует рядом (рисунки временные, видны только у тебя)
 const poly = (n, f) => Array.from({ length: n + 1 }, (_, i) => f(i / n));
@@ -783,10 +800,9 @@ function aiFocusBox() {                                // где сейчас р
   if (mine.length) { let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9; mine.forEach((o) => { const q = bbox(o); x0 = Math.min(x0, q.x); y0 = Math.min(y0, q.y); x1 = Math.max(x1, q.x + q.w); y1 = Math.max(y1, q.y + q.h); }); return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }; }
   const t = [...objs.values()].reverse().find((o) => o.fipi); return t ? bbox(t) : null;
 }
-function aiSpot() {                                    // свободное место справа от записей ученика, в пределах экрана
-  const z = cam.z, S = 55 / z, b = aiFocusBox();
-  const x = b ? b.x + b.w + S * 1.8 : cam.x + VW / z * 0.6, y = b ? b.y + Math.min(b.h, 300 / z) * 0.3 : cam.y + VH / z * 0.55;
-  return { S, x: Math.min(cam.x + VW / z - 90 / z, Math.max(cam.x + 90 / z, x)), y: Math.min(cam.y + VH / z - 90 / z, Math.max(cam.y + 110 / z, y)) };
+function aiSpot() {                                    // свободное место рядом с игроком, в пределах экрана
+  const z = cam.z, S = 55 / z, [ax, ay] = aiAnchor();
+  return { S, x: Math.min(cam.x + VW / z - 90 / z, Math.max(cam.x + 90 / z, ax + 190 / z)), y: Math.min(cam.y + VH / z - 90 / z, Math.max(cam.y + 110 / z, ay - 20 / z)) };
 }
 async function aiDoodle() {
   ai.busy = true; ai.mood = "happy";
@@ -837,9 +853,18 @@ function aiTick(now) {
   if (ai.text && ai.doneAt && now - ai.doneAt > 15000) { ai.text = ""; ai.doneAt = 0; dirty = true; }
   if (!ai.text && ai.resolve) { ai.resolve(); ai.resolve = null; }   // реплику стёрли, пока печаталась, — не держим очередь
   if (ai.thinking) dirty = true;
-  if (!ai.lastAct) { ai.lastAct = now; ai.idleAt = nudgeGap(); }
-  if (!ai.busy && !ai.thinking && !aiBusyTimer && !document.hidden && (ai.nudges || 0) < 4 && now - ai.lastAct > ai.idleAt) { ai.lastAct = now; ai.idleAt = nudgeGap(); aiNudge(); }
-  if (!ai.busy && !ai.thinking && now > ai.nextIdle) aiIdlePick(now);
+  if (aiLeader()) {
+    if (!ai.lastAct) { ai.lastAct = now; ai.idleAt = nudgeGap(); }
+    if (!ai.busy && !ai.thinking && !aiBusyTimer && !document.hidden && (ai.nudges || 0) < 4 && now - ai.lastAct > ai.idleAt) { ai.lastAct = now; ai.idleAt = nudgeGap(); aiNudge(); }
+    if (!ai.busy && !ai.thinking) {
+      const [ax, ay] = aiAnchor();
+      if (now > ai.nextIdle || (Math.hypot(ai.x - ax, ai.y - ay) > 260 / cam.z && now - (ai.lastPick || 0) > 600)) aiIdlePick(now);
+    }
+    if (now > (ai.nextSwitch || 0) && ai.nextSwitch) aiSwitchFollow(now);
+    if (now - (ai.sentAt || 0) > 120 && (Math.abs(ai.x - (ai.sx ?? 1e9)) + Math.abs(ai.y - (ai.sy ?? 1e9))) * cam.z > 2) {   // кот сдвинулся — рассказываем остальным
+      ai.sentAt = now; ai.sx = ai.x; ai.sy = ai.y; send({ t: "cat", x: +ai.x.toFixed(1), y: +ai.y.toFixed(1) });
+    }
+  }
 }
 function drawCat() {
   const [sx, sy] = worldToScreen(ai.x, ai.y), now = performance.now();
@@ -920,7 +945,7 @@ function aiAsk(text) {
   if (aiBusyTimer) { toast("Ваттсон ещё думает 😼"); return; }
   if (!ai.on) send({ t: "ai_join" });
   ai.nudges = 0; ai.lastAct = performance.now();
-  aiBusyTimer = setTimeout(() => { aiBusyTimer = 0; if (ai.thinking) aiFail("fail"); }, 45000);
+  aiBusyTimer = setTimeout(() => { aiBusyTimer = 0; if (ai.thinking) aiFail("fail"); }, 120000);
   send({ t: "ai", text, img: snapshot(), view: { x: cam.x, y: cam.y, z: cam.z, w: VW, h: VH }, code: curCode, key: aiKey, uid: UID });
 }
 function aiSend() { const t = $("aiIn").value.trim(); if (!t) return; $("aiIn").value = ""; aiAsk(t); }
