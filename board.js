@@ -887,7 +887,7 @@ function aiSpot() {                                    // свободное м�
 async function aiDoodle() {
   ai.busy = true; ai.mood = "happy";
   const sp = aiSpot(), shapes = DOODLES[Math.floor(Math.random() * DOODLES.length)]();
-  const strokes = shapes.map((pts) => ({ id: "a" + newId(), type: "stroke", c: "#c7742e", w: +Math.max(1.5, 3 / cam.z).toFixed(2), p: pts.map(([x, y]) => [+(sp.x + x * sp.S).toFixed(1), +(sp.y + y * sp.S).toFixed(1)]), ai: 1, tmp: 1, _n: 0 }));
+  const strokes = shapes.map((pts) => ({ id: "a" + newId(), type: "stroke", c: "#de955a", w: +Math.max(1.5, 3 / cam.z).toFixed(2), p: pts.map(([x, y]) => [+(sp.x + x * sp.S).toFixed(1), +(sp.y + y * sp.S).toFixed(1)]), ai: 1, tmp: 1, _n: 0 }));
   const t = ["Это тебе 😺", "Заскучал и порисовал 🐾", "Рисую, пока ты думаешь ✨"][Math.floor(Math.random() * 3)];
   send({ t: "cat_doodle", say: t, strokes: strokes.map((o) => ({ c: o.c, w: o.w, p: o.p })) });
   strokes.forEach((o) => objs.set(o.id, o));
