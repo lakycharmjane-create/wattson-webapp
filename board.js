@@ -710,38 +710,6 @@ $("trandom").onclick = () => {
   if (pool.length) loadCode(pool[Math.floor(Math.random() * pool.length)].c);
 };
 
-// ---------------------------------------------------------------- 🔊 Озвучка: голос самого устройства (speechSynthesis) — запросов к ИИ и токенов не тратит
-const SAY_LAT = { a: "а", b: "бэ", c: "цэ", d: "дэ", e: "э", f: "эф", g: "жэ", h: "аш", i: "и", j: "йот", k: "ка", l: "эль", m: "эм", n: "эн", o: "о", p: "пэ", q: "ку", r: "эр", s: "эс", t: "тэ", u: "у", v: "вэ", w: "дубль вэ", x: "икс", y: "игрек", z: "зэт" };
-const SAY_SYM = { Δ: "дельта", δ: "дельта", ν: "ню", ρ: "ро", λ: "лямбда", μ: "мю", ω: "омега", Ω: "омега", α: "альфа", β: "бета", γ: "гамма", ε: "эпсилон", η: "эта", π: "пи", σ: "сигма", τ: "тау", φ: "фи", θ: "тета", "°": "градусов", "%": "процентов", "√": "корень из", "≈": "примерно равно", "≤": "меньше или равно", "≥": "больше или равно", "≠": "не равно", "±": "плюс минус", "=": "равно", "+": "плюс", "−": "минус", "·": "умножить на", "*": "умножить на", "×": "умножить на", "/": "делить на", "→": "" };
-const SAY_ORD = { 0: "нулевое", 1: "первое", 2: "второе", 3: "третье", 4: "четвёртое", 5: "пятое", 6: "шестое" };
-const SAY_UNITS = [["м/с²", "метров на секунду в квадрате"], ["км/ч", "километров в час"], ["м/с", "метров в секунду"], ["кг/м³", "килограммов на кубический метр"], ["Дж", "джоулей"], ["Вт", "ватт"], ["Па", "паскалей"], ["Гц", "герц"], ["Ом", "ом"], ["Кл", "кулонов"], ["кг", "килограммов"], ["км", "километров"], ["см", "сантиметров"], ["мм", "миллиметров"], ["мин", "минут"], ["Н", "ньютонов"], ["м", "метров"], ["с", "секунд"], ["г", "граммов"], ["ч", "часов"], ["К", "кельвинов"], ["А", "ампер"], ["В", "вольт"]];
-function speakable(raw) {                               // текст кота → то, что можно произнести: индексы, степени, греческие буквы, знаки, единицы
-  let t = texify(String(raw)).replace(/[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}\uFE0F\u200D]/gu, "");
-  for (const [u, w] of SAY_UNITS) t = t.replace(new RegExp("([0-9]) ?" + u + "(?![А-Яа-яЁёA-Za-z0-9²³])", "g"), "$1 " + w + " ");
-  t = richRuns(t).map((r) => {
-    if (r.m === 1) return " " + (/^[0-9]+$/.test(r.s) && SAY_ORD[r.s] ? SAY_ORD[r.s] : r.s) + " ";
-    if (r.m === 2) return " " + (r.s === "2" ? "в квадрате" : r.s === "3" ? "в кубе" : r.s === "-1" || r.s === "−1" ? "в минус первой степени" : r.s === "-2" || r.s === "−2" ? "в минус второй степени" : "в степени " + r.s) + " ";
-    return r.s;
-  }).join("");
-  t = t.replace(/²/g, " в квадрате ").replace(/³/g, " в кубе ");
-  t = t.replace(/(?<=[0-9A-Za-z)] ?)-(?= ?[0-9A-Za-z(])/g, " минус ").replace(/(^|\s)-(?=[0-9])/g, "$1минус ");
-  t = t.replace(/[Δδνρλμ ωΩαβγεηπστφθ°%√≈≤≥≠±=+−·*×/→]/gu, (c) => (c === " " ? " " : " " + SAY_SYM[c] + " "));
-  t = t.replace(/[A-Za-z]/g, (c) => " " + SAY_LAT[c.toLowerCase()] + " ").replace(/[()[\]{}_^]/g, " ");
-  return t.replace(/\s+/g, " ").trim();
-}
-const TTS = "speechSynthesis" in window && "SpeechSynthesisUtterance" in window;
-let ttsVoice = null, ttsAuto = false;
-function ttsPick() { if (!TTS) return; ttsVoice = speechSynthesis.getVoices().find((v) => /^ru/i.test(v.lang)) || null; document.body.classList.toggle("tts", !!ttsVoice); }
-function speak(text) {
-  if (!TTS || !ttsVoice) return;
-  speechSynthesis.cancel();
-  for (const sentence of speakable(text).split(/(?<=[.!?…])\s+/)) {
-    for (const part of sentence.match(/.{1,180}(?:\s|$)/g) || []) {              // длинные куски браузеры обрывают — режем по предложениям и по ~180 знаков
-      const u = new SpeechSynthesisUtterance(part.trim()); if (!u.text) continue;
-      u.lang = "ru-RU"; u.voice = ttsVoice; u.rate = 1; speechSynthesis.speak(u);
-    }
-  }
-}
 // ---------------------------------------------------------------- 🐱 Ваттсон (ИИ-помощник)
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // запасной «переводчик» LaTeX в обычный текст — на случай, если модель всё же напишет $\frac{a}{b}$
@@ -763,7 +731,7 @@ let aiQ = Promise.resolve(), aiBusyTimer = 0;
 const aiRun = (fn) => (aiQ = aiQ.then(() => Promise.race([fn(), sleep(30000)])).catch(() => {}));   // очередь не должна зависать навсегда
 function aiLog(cls, text) {
   if (cls === "cat") text = texify(text);
-  const d = document.createElement("div"); d.className = cls; if (cls === "cat") { d.dataset.raw = text; d.innerHTML = richHTML(text) + (TTS ? ' <span class="spk" title="Прочитать вслух">🔊</span>' : ""); } else d.textContent = text;
+  const d = document.createElement("div"); d.className = cls; if (cls === "cat") d.innerHTML = richHTML(text); else d.textContent = text;
   const lg = $("ailog"); lg.appendChild(d); lg.scrollTop = lg.scrollHeight; return d;
 }
 // ---- кот всегда рядом с каким-нибудь игроком: держится в радиусе от него с небольшим отставанием, а со временем (или когда спросит другой) переходит к другому
@@ -775,27 +743,33 @@ function aiPlayerPos() {                                // где сейчас �
   if (performance.now() - ptr.t < 60000 && aiOn(ptr.x, ptr.y)) return [ptr.x, ptr.y];
   return [cam.x + VW / 2 / cam.z, cam.y + VH / 2 / cam.z];
 }
+function aiClamp(x, y) {                                // кот всегда остаётся на видимой части доски (с отступом от краёв)
+  const z = cam.z; return [Math.min(cam.x + VW / z - 80 / z, Math.max(cam.x + 80 / z, x)), Math.min(cam.y + VH / z - 90 / z, Math.max(cam.y + 90 / z, y))];
+}
 function aiAnchor() {                                   // «дом» кота — примерное место, где работает игрок; кот стоит там и чуть шевелится, а за курсором не бегает
-  if (!ai.home) { const [px, py] = aiPlayerPos(); ai.home = [px + 140 / cam.z, py - 30 / cam.z]; }
+  if (!ai.home) { const [px, py] = aiPlayerPos(); ai.home = aiClamp(px + 140 / cam.z, py - 30 / cam.z); }
   return ai.home;
 }
 function aiRehome(now, force) {                         // игрок ушёл далеко от «дома» — переносим дом к нему (не сразу, чтобы кот не дёргался от случайного движения мыши)
   const [px, py] = aiPlayerPos(), [hx, hy] = aiAnchor(), z = cam.z, d = Math.hypot(px - hx, py - hy) * z;
   if (d <= Math.max(650, VW * 0.6)) { ai.farSince = 0; return; }
   if (!ai.farSince) ai.farSince = now;
-  if (force || now - ai.farSince > 3500) { ai.home = [px + 140 / z, py - 30 / z]; ai.farSince = 0; ai.nextIdle = 0; }
+  if (force || now - ai.farSince > 3500) { ai.home = aiClamp(px + 140 / z, py - 30 / z); ai.farSince = 0; ai.nextIdle = 0; }
 }
 function aiSwitchFollow(now) {                         // пора передать кота следующему игроку — решает сервер
   ai.nextSwitch = now + 40000 + Math.random() * 50000;
   send({ t: "cat_next" });
 }
-function aiJoin() {
+function aiJoin() {                                     // кот прилетает на доску справа и плавно садится рядом с игроком (у остальных — туда, где его ведёт ведущий)
   if (ai.on) return;
   const z = cam.z; ai.on = true;
-  const [ax, ay] = aiAnchor();
-  if (ai.lastPos && !aiLeader()) { ai.x = ai.tx = ai.lastPos[0]; ai.y = ai.ty = ai.lastPos[1]; }
-  else { ai.x = ai.tx = cam.x + VW / z + 40 / z; ai.y = ai.ty = ay; if (aiLeader()) aiMoveTo(ax + 110 / z, ay - 60 / z, 2.6); }
-  ai.nextIdle = performance.now() + 2500; ai.nextSwitch = performance.now() + 40000 + Math.random() * 50000; invalidate();
+  const [ax, ay] = aiAnchor(), mine = aiLeader() || !ai.lastPos;
+  const [tx, ty] = mine ? aiClamp(ax + 110 / z, ay - 60 / z) : ai.lastPos;
+  ai.x = cam.x + VW / z + 40 / z; ai.y = Math.min(cam.y + VH / z * 0.9, Math.max(cam.y + VH / z * 0.1, ty));
+  ai.tx = ai.x; ai.ty = ai.y; ai.k = 2.6;
+  ai.enterUntil = performance.now() + 2800;               // пока летит, «домашние» передвижения не вмешиваются
+  ai.nextIdle = ai.enterUntil + 1500; ai.nextSwitch = performance.now() + 40000 + Math.random() * 50000;
+  aiMoveTo(tx, ty, 2.6); invalidate();
 }
 function aiHello() { aiRun(async () => { await aiMoveTo(ai.tx, ai.ty, 2.6); ai.mood = "happy"; const t = "Мяу! Я Ваттсон 😺 Что решаем? Пиши, что у тебя не получается."; aiLog("cat", t); await aiSay(t); ai.mood = "chill"; }); }
 const aiMoveTo = (x, y, k = 4.5) => new Promise((res) => {
@@ -816,15 +790,16 @@ function aiFail(why, who) {
   if (/^(badkey|quota)$/.test(why) && who && who !== myName) why = "fail";   // чужой ключ — не моё дело
   aiBusyDone(); ai.thinking = false; ai.busy = false; ai.mood = "oops";
   const t = { fast: "Не так быстро, я не успеваю мурлыкать 😼", limit: "На сегодня пробные запросы закончились. Подключи свой ключ или приходи завтра!", nokey: "Меня ещё не подключили на сервере 🙈",
-    fail: "Мяу, что-то заглючило. Спроси ещё раз.", busy: "Твой вопрос уже в очереди — подожди ответа 😺", full: "Ко мне очередь из пяти человек 🙀 Подожди немного и спроси ещё раз.", badkey: "Ключ не подошёл 🙈 Проверь, что скопировал его целиком, и вставь заново.", quota: "У твоего ключа сейчас кончился лимит запросов 😿 Подожди минутку (или до завтра) и спроси ещё раз.", trial_over: "Пять пробных запросов закончились 😺 Дальше — со своим ключом, это две минуты!" }[why] || "Мяу, что-то пошло не так.";
+    fail: "Мяу, что-то заглючило. Спроси ещё раз.", busy: "Твой вопрос уже в очереди — подожди ответа 😺", full: "Ко мне очередь из пяти человек 🙀 Подожди немного и спроси ещё раз.", badkey: "Ключ не подошёл 🙈 Проверь, что скопировал его целиком, и вставь заново.", quota: "У твоего ключа сейчас кончился лимит запросов 😿 Подожди минутку (или до завтра) и спроси ещё раз.", trial_over: "Пять пробных запросов закончились 😺 Дальше — со своим ключом, это две минуты!", setup: "Это уже вопрос для ИИ 🧠 Нужен твой ключ или пробные запросы. А формулы, единицы, калькулятор и подсказки к задачам работают и так 😺" }[why] || "Мяу, что-то пошло не так.";
   aiLog("cat", t); aiRun(() => aiSay(t));
-  if (why === "badkey") { keySave(""); showSetup("Ключ не подошёл — вставь его заново."); }
+  if (why === "setup") showSetup("Для этого вопроса нужен ИИ — подключи ключ или возьми пробные запросы.");
+  else if (why === "badkey") { keySave(""); showSetup("Ключ не подошёл — вставь его заново."); }
   else if (why === "trial_over") { aiTrial = false; aiLeft = 0; lsSet("wt", ""); lsSet("wtd", "1"); showSetup("Пробные запросы закончились."); }
 }
 function aiReact(mood, text) { ai.mood = mood; aiLog("cat", text); return aiSay(text); }
 async function aiAct(m) {
   aiBusyDone(); ai.thinking = false; ai.busy = true; ai.mood = m.mood || "chill";
-  aiLog("cat", m.say); if (ttsAuto && m.from === myName) speak(m.say);
+  aiLog("cat", m.say);
   const marks = (m.marks || []).filter((o) => o && o.p && o.p.length);
   marks.forEach((o) => { o._n = 0; objs.set(o.id, o); });
   (m.texts || []).forEach((o) => { if (o && o.id) objs.set(o.id, o); });          // надписи кота появляются сразу
@@ -854,9 +829,10 @@ function aiReveal(o) {
   });
 }
 function aiIdlePick(now) {                            // чуть-чуть бродит возле «дома» (радиус ~100 px); если оттащило далеко — возвращается
+  if (now < (ai.enterUntil || 0)) { ai.nextIdle = ai.enterUntil; return; }
   const z = cam.z, [ax, ay] = aiAnchor(), d = Math.hypot(ai.x - ax, ai.y - ay) * z, far = d > 260;
   const ang = Math.random() * 6.283, rad = (far ? 60 : 40 + Math.random() * 70) / z;
-  ai.tx = ax + Math.cos(ang) * rad; ai.ty = ay + Math.sin(ang) * rad * 0.7;
+  [ai.tx, ai.ty] = aiClamp(ax + Math.cos(ang) * rad, ay + Math.sin(ang) * rad * 0.7);
   ai.k = far ? (d > 1200 ? 5 : 2.4) : 1.1 + Math.random() * 0.6;
   ai.lastPick = now; ai.nextIdle = now + 3500 + Math.random() * 5000;
 }
@@ -982,11 +958,10 @@ function drawCat() {
 function toggleAi(on) {
   const p = $("aip"), show = on ?? p.style.display !== "flex";
   p.style.display = show ? "flex" : "none";
-  if (!show && TTS) speechSynthesis.cancel();
   if (show) {
     $("diary").style.display = "none";
     if (!ai.on) send({ t: "ai_join" }); if (!online) toast("Нет связи с сервером");
-    if (!aiKey && !aiTrial) showSetup(); else { aiSetup = false; aiGate(); setTimeout(() => $("aiIn").focus(), 50); }
+    if (!aiKey && !aiTrial && !aiFree) showSetup(); else { aiSetup = false; aiGate(); setTimeout(() => $("aiIn").focus(), 50); }
   }
 }
 
@@ -996,7 +971,7 @@ const lsSet = (k, v) => { try { v ? localStorage.setItem(k, v) : localStorage.re
 const cloud = tg && tg.CloudStorage && tg.isVersionAtLeast && tg.isVersionAtLeast("6.9") ? tg.CloudStorage : null;
 const tgUser = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
 let UID = tgUser ? "t" + tgUser.id : lsGet("wdid"); if (!UID) { UID = "d" + rnd(14); lsSet("wdid", UID); }
-let aiKey = lsGet("wk"), aiTrial = lsGet("wt") === "1", aiLeft = lsGet("wtd") ? 0 : null, aiSetup = false;
+let aiFree = lsGet("wf") === "1", aiKey = lsGet("wk"), aiTrial = lsGet("wt") === "1", aiLeft = lsGet("wtd") ? 0 : null, aiSetup = false;
 function keySave(v) { aiKey = v; lsSet("wk", v); if (cloud) { try { v ? cloud.setItem("wk", v, () => {}) : cloud.removeItem("wk", () => {}); } catch (e) {} } }
 if (cloud) { try { cloud.getItem("wk", (err, v) => { if (!err && v && !aiKey) { aiKey = v; lsSet("wk", v); if ($("aip").style.display === "flex") { aiSetup = false; aiGate(); } } }); } catch (e) {} }
 const KEY_OK = /^[\w.\-]{16,200}$/;
@@ -1018,21 +993,13 @@ $("aiKeySave").onclick = () => {
   keySave(v); aiSetup = false; aiGate(); aiLog("sys", "🔑 Ключ сохранён — спрашивай!"); toast("Ключ сохранён ✅"); setTimeout(() => $("aiIn").focus(), 50);
 };
 $("aiKeyDel").onclick = () => { keySave(""); showSetup("Ключ удалён."); };
+$("aiFree").onclick = () => { aiFree = true; lsSet("wf", "1"); aiSetup = false; aiGate(); aiLog("sys", "Без ИИ: подсказки к задачам, формулы, калькулятор, единицы и постоянные работают без ключа"); setTimeout(() => $("aiIn").focus(), 50); };
 $("aiTrial").onclick = () => { aiTrial = true; lsSet("wt", "1"); aiSetup = false; aiGate(); aiLog("sys", "Пробный режим: 5 запросов без ключа"); setTimeout(() => $("aiIn").focus(), 50); };
 $("aisetup").addEventListener("click", (e) => { const a = e.target.closest("a[data-url]"); if (!a) return; e.preventDefault(); const u = a.dataset.url; if (tg && tg.openLink) tg.openLink(u); else window.open(u, "_blank", "noopener"); });
 $("aiKeyIn").addEventListener("keydown", (e) => { if (e.key === "Enter") $("aiKeySave").click(); e.stopPropagation(); });
 $("aiBtn").onclick = () => toggleAi();
 $("aiClose").onclick = () => toggleAi(false);
 $("aiClean").onclick = () => { const ids = [...objs.values()].filter((o) => o.ai).map((o) => o.id); ids.forEach((id) => delObj(id, false)); toast(ids.length ? "Пометки Ваттсона стёрты" : "Пометок нет"); };
-if (TTS) {
-  ttsPick(); try { speechSynthesis.addEventListener("voiceschanged", ttsPick); } catch (e) {} setTimeout(ttsPick, 800); setTimeout(ttsPick, 2500);
-  ttsAuto = lsGet("wv") === "1"; $("aiVoice").textContent = ttsAuto ? "🔊" : "🔇";
-  $("aiVoice").onclick = () => {                         // автоматически читать ответы вслух; первый вызов «будит» синтезатор (iOS требует нажатия)
-    ttsAuto = !ttsAuto; lsSet("wv", ttsAuto ? "1" : ""); $("aiVoice").textContent = ttsAuto ? "🔊" : "🔇";
-    if (ttsAuto) { try { speechSynthesis.speak(new SpeechSynthesisUtterance(" ")); } catch (e) {} toast("Ответы кота будут читаться вслух"); } else speechSynthesis.cancel();
-  };
-  $("ailog").addEventListener("click", (e) => { const k = e.target.closest(".spk"); if (k && k.parentElement.dataset.raw) speak(k.parentElement.dataset.raw); });
-}
 function aiBusyDone() { clearTimeout(aiBusyTimer); aiBusyTimer = 0; }
 function snapshot() {
   draw();
@@ -1043,12 +1010,12 @@ function snapshot() {
 }
 function aiAsk(text, mode, answer) {
   if (!online) { toast("Нет связи с сервером"); return; }
-  if (!aiKey && !aiTrial) { showSetup(); return; }
+  if (!aiKey && !aiTrial && !aiFree) { showSetup(); return; }
   if (aiBusyTimer) { toast("Ваттсон ещё думает 😼"); return; }
   if (!ai.on) send({ t: "ai_join" });
   ai.nudges = 0; ai.lastAct = performance.now();
   aiBusyTimer = setTimeout(() => { aiBusyTimer = 0; if (ai.thinking) aiFail("fail"); }, 120000);
-  send({ t: "ai", text, img: snapshot(), view: { x: cam.x, y: cam.y, z: cam.z, w: VW, h: VH }, code: curCode, key: aiKey, uid: UID, mode: mode || "", answer: answer || "" });
+  send({ t: "ai", text, img: snapshot(), view: { x: cam.x, y: cam.y, z: cam.z, w: VW, h: VH }, code: curCode, key: aiKey, trial: aiTrial ? 1 : 0, uid: UID, mode: mode || "", answer: answer || "" });
 }
 // быстрые кнопки над строкой ввода: проверка решения, «что дано», формула, единицы и подсказка по нарастающей (1 → 2 → 3)
 const hintLv = {};
