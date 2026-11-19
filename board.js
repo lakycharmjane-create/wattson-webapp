@@ -75,10 +75,11 @@ function connect() {
       case "ai_think": aiThink(); break;
       case "cat_lead":                                   // сервер назначил ведущего игрока: рядом с ним кот
         ai.lead = m.who; if (m.x != null) ai.lastPos = [m.x, m.y];
-        if (aiLeader()) { ai.sx = undefined; ai.nextSwitch = performance.now() + 40000 + Math.random() * 50000; }
+        if (aiLeader()) { ai.sx = undefined; ai.home = null; ai.nextSwitch = performance.now() + 40000 + Math.random() * 50000; }
         else if (ai.on && m.x != null) { ai.tx = m.x; ai.ty = m.y; ai.k = 6; }
         invalidate(); break;
       case "cat": if (!aiLeader()) { ai.lastPos = [m.x, m.y]; ai.tx = m.x; ai.ty = m.y; ai.k = 6; invalidate(); } break;
+      case "cat_doodle": if (ai.on && !aiLeader()) aiRun(() => aiDoodleShow(m)); break;
       case "ai_wait": aiLog("sys", m.n === 1 && m.now ? `Ваттсон отвечает ${m.now} — ты следующий ✋` : `Твой вопрос в очереди, впереди: ${m.n} ⏳`); break;
       case "ai_act": aiRun(() => aiAct(m)); break;
       case "ai_err": aiFail(m.why, m.who); break;
@@ -122,11 +123,45 @@ function imageOf(o) {
   }
   return im;
 }
+// ---- «красивые формулы»: p_нас, v_0, E_k, t^2, 10^-3, x_{max} рисуются настоящими индексами и степенями (на доске, в чате и в облачке)
+function richRuns(text) {
+  const out = []; let buf = "", i = 0;
+  const flush = () => { if (buf) out.push({ s: buf, m: 0 }); buf = ""; };
+  const isD = (c) => c >= "0" && c <= "9", isW = (c) => /[0-9A-Za-zА-Яа-яЁё]/.test(c || "");
+  while (i < text.length) {
+    const c = text[i];
+    if ((c === "_" || c === "^") && i + 1 < text.length) {
+      const m = c === "_" ? 1 : 2; let j = i + 1, sub = "";
+      if (text[j] === "{") { const e = text.indexOf("}", j); if (e > j) { sub = text.slice(j + 1, e); j = e + 1; } }
+      else if (m === 1) { if (isD(text[j])) { while (isD(text[j])) sub += text[j++]; } else while (isW(text[j]) && !isD(text[j])) sub += text[j++]; }
+      else { if (text[j] && "+-−".includes(text[j])) sub += text[j++]; while (isD(text[j])) sub += text[j++]; if (!sub && isW(text[j])) sub += text[j++]; }
+      if (sub.trim()) { flush(); out.push({ s: sub, m }); i = j; continue; }
+    }
+    buf += c; i++;
+  }
+  flush(); return out;
+}
+const escHtml = (t) => t.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+const richHTML = (text) => richRuns(text).map((r) => (r.m === 1 ? `<sub>${escHtml(r.s)}</sub>` : r.m === 2 ? `<sup>${escHtml(r.s)}</sup>` : escHtml(r.s))).join("");
+function richMeasure(line, size) {                       // ширина строки с индексами (шрифт уже выставлен)
+  let w = 0; const f = ctx.font;
+  for (const r of richRuns(line)) { ctx.font = r.m ? f.replace(/[0-9.]+px/, size * 0.7 + "px") : f; w += ctx.measureText(r.s).width; }
+  ctx.font = f; return w;
+}
+function richDraw(line, x, y, size) {                    // y — верх строки (textBaseline = top)
+  let cx = x; const f = ctx.font;
+  for (const r of richRuns(line)) {
+    if (!r.m) { ctx.fillText(r.s, cx, y); cx += ctx.measureText(r.s).width; continue; }
+    ctx.font = f.replace(/[0-9.]+px/, size * 0.7 + "px");
+    ctx.fillText(r.s, cx, y + (r.m === 1 ? size * 0.3 : -size * 0.1)); cx += ctx.measureText(r.s).width; ctx.font = f;
+  }
+}
+const otext = (o) => (o.ai ? texify(o.text || "") : o.text || "");   // текст кота может прийти с LaTeX — приводим к обычному
 const textFont = (o) => `${o.size}px system-ui, "Segoe UI", Roboto, sans-serif`;
 function textBox(o) {
   ctx.save(); ctx.font = textFont(o);
-  const lines = (o.text || "").split("\n");
-  const w = Math.max(...lines.map((l) => ctx.measureText(l).width), o.size * 0.6);
+  const lines = otext(o).split("\n");
+  const w = Math.max(...lines.map((l) => richMeasure(l, o.size)), o.size * 0.6);
   ctx.restore();
   return { x: o.x, y: o.y, w, h: lines.length * o.size * 1.2, lines };
 }
@@ -182,7 +217,7 @@ function draw() {
       else { ctx.fillStyle = "#e9ecf0"; ctx.fillRect(o.x, o.y, o.w, o.h); }
     } else if (o.type === "text") {
       ctx.fillStyle = o.c; ctx.font = textFont(o); ctx.textBaseline = "top";
-      (o.text || "").split("\n").forEach((l, i) => ctx.fillText(l, o.x, o.y + i * o.size * 1.2));
+      otext(o).split("\n").forEach((l, i) => richDraw(l, o.x, o.y + i * o.size * 1.2, o.size));
     }
   });
 
@@ -689,15 +724,13 @@ function texify(s) {
   for (let i = 0; i < 3; i++) s = s.replace(/\u005c[dt]?frac\s*\{([^{}]*)\}\s*\{([^{}]*)\}/g, (_, a, b) => `(${a})/(${b})`);
   s = s.replace(/\u005csqrt\s*\{([^{}]*)\}/g, "√($1)").replace(/\u005csqrt\s*(\w)/g, "√$1");
   s = s.replace(/\u005c([A-Za-z]+)/g, (m, w) => GREEK[w] || m);
-  s = s.replace(/\^\{([^{}]*)\}/g, (m, a) => map(a, SUP) || m).replace(/\^([0-9n+\-−])/g, (m, a) => SUP[a]);
-  s = s.replace(/_\{([^{}]*)\}/g, (m, a) => map(a, SUB) || `_${a}`).replace(/_([0-9a-z])/g, (m, a) => SUB[a] || m);
-  return s.replace(/[{}]/g, "");
+  return s;
 }
 let aiQ = Promise.resolve(), aiBusyTimer = 0;
 const aiRun = (fn) => (aiQ = aiQ.then(() => Promise.race([fn(), sleep(30000)])).catch(() => {}));   // очередь не должна зависать навсегда
 function aiLog(cls, text) {
   if (cls === "cat") text = texify(text);
-  const d = document.createElement("div"); d.className = cls; d.textContent = text;
+  const d = document.createElement("div"); d.className = cls; if (cls === "cat") d.innerHTML = richHTML(text); else d.textContent = text;
   const lg = $("ailog"); lg.appendChild(d); lg.scrollTop = lg.scrollHeight; return d;
 }
 // ---- кот всегда рядом с каким-нибудь игроком: держится в радиусе от него с небольшим отставанием, а со временем (или когда спросит другой) переходит к другому
@@ -705,9 +738,19 @@ const ptr = { x: 0, y: 0, t: 0 };                      // где у меня н�
 window.addEventListener("pointermove", (e) => { const r = cv.getBoundingClientRect(); const [wx, wy] = screenToWorld(e.clientX - r.left, e.clientY - r.top); ptr.x = wx; ptr.y = wy; ptr.t = performance.now(); }, { passive: true });
 function aiOn(x, y) { const [sx, sy] = worldToScreen(x, y); return sx > -20 && sy > -20 && sx < VW + 20 && sy < VH + 20; }   // точка сейчас на моём экране?
 function aiLeader() { return !ai.lead || ai.lead === myName; }          // кота сейчас веду я (он рядом со мной)?
-function aiAnchor() {                                   // рядом с чем держится кот: мой указатель, иначе центр моего экрана
+function aiPlayerPos() {                                // где сейчас решает игрок: указатель, иначе центр экрана
   if (performance.now() - ptr.t < 60000 && aiOn(ptr.x, ptr.y)) return [ptr.x, ptr.y];
   return [cam.x + VW / 2 / cam.z, cam.y + VH / 2 / cam.z];
+}
+function aiAnchor() {                                   // «дом» кота — примерное место, где работает игрок; кот стоит там и чуть шевелится, а за курсором не бегает
+  if (!ai.home) { const [px, py] = aiPlayerPos(); ai.home = [px + 140 / cam.z, py - 30 / cam.z]; }
+  return ai.home;
+}
+function aiRehome(now, force) {                         // игрок ушёл далеко от «дома» — переносим дом к нему (не сразу, чтобы кот не дёргался от случайного движения мыши)
+  const [px, py] = aiPlayerPos(), [hx, hy] = aiAnchor(), z = cam.z, d = Math.hypot(px - hx, py - hy) * z;
+  if (d <= Math.max(650, VW * 0.6)) { ai.farSince = 0; return; }
+  if (!ai.farSince) ai.farSince = now;
+  if (force || now - ai.farSince > 3500) { ai.home = [px + 140 / z, py - 30 / z]; ai.farSince = 0; ai.nextIdle = 0; }
 }
 function aiSwitchFollow(now) {                         // пора передать кота следующему игроку — решает сервер
   ai.nextSwitch = now + 40000 + Math.random() * 50000;
@@ -732,9 +775,8 @@ function aiSay(text) {
   ai.text = text; ai.shown = 0; ai.pause = 0.3; ai.doneAt = 0; invalidate();
   return new Promise((r) => { ai.resolve = r; });
 }
-function aiLook() {
-  if (!aiLeader()) return;
-  const [ax, ay] = aiAnchor(); aiMoveTo(ax + (60 + Math.random() * 60) / cam.z, ay + (30 + Math.random() * 40) / cam.z, 2.8);
+function aiLook() {                                    // игрок задал вопрос: кот остаётся на месте; переезжает, только если игрок убежал очень далеко
+  if (aiLeader()) aiRehome(performance.now(), true);
 }
 function aiThink() { aiJoin(); ai.thinking = true; ai.busy = true; ai.mood = "think"; ai.text = ""; aiLook(); invalidate(); }
 function aiFail(why, who) {
@@ -778,12 +820,12 @@ function aiReveal(o) {
     })();
   });
 }
-function aiIdlePick(now) {                            // бродит рядом с игроком в радиусе ~170 px; отстал — догоняет
+function aiIdlePick(now) {                            // чуть-чуть бродит возле «дома» (радиус ~100 px); если оттащило далеко — возвращается
   const z = cam.z, [ax, ay] = aiAnchor(), d = Math.hypot(ai.x - ax, ai.y - ay) * z, far = d > 260;
-  const ang = Math.random() * 6.283, rad = (far ? 90 : 80 + Math.random() * 90) / z;
+  const ang = Math.random() * 6.283, rad = (far ? 60 : 40 + Math.random() * 70) / z;
   ai.tx = ax + Math.cos(ang) * rad; ai.ty = ay + Math.sin(ang) * rad * 0.7;
-  ai.k = far ? (d > 1200 ? 5 : 2.4) : 1.5 + Math.random() * 0.8;
-  ai.lastPick = now; ai.nextIdle = now + 2500 + Math.random() * 4500;
+  ai.k = far ? (d > 1200 ? 5 : 2.4) : 1.1 + Math.random() * 0.6;
+  ai.lastPick = now; ai.nextIdle = now + 3500 + Math.random() * 5000;
 }
 // ---- кот сам проявляет инициативу: ученик давно молчит → спрашивает «тебе подсказать?» или рисует рядом (рисунки временные, видны только у тебя)
 const poly = (n, f) => Array.from({ length: n + 1 }, (_, i) => f(i / n));
@@ -794,6 +836,10 @@ const DOODLES = [
   () => [circ(0, 0, 1), circ(-0.35, -0.25, 0.09), circ(0.35, -0.25, 0.09), poly(12, (t) => { const a = Math.PI * (0.2 + t * 0.6); return [Math.cos(a) * 0.55, Math.sin(a) * 0.5]; })],   // смайлик
   () => [circ(0, 0.05, 0.85), [[-0.8, -0.3], [-0.75, -1.05], [-0.25, -0.75]], [[0.8, -0.3], [0.75, -1.05], [0.25, -0.75]], circ(-0.3, -0.1, 0.07), circ(0.3, -0.1, 0.07), [[-0.1, 0.15], [0.1, 0.15], [0, 0.27], [-0.1, 0.15]],
          [[-0.35, 0.3], [-1.05, 0.2]], [[-0.35, 0.4], [-1.05, 0.5]], [[0.35, 0.3], [1.05, 0.2]], [[0.35, 0.4], [1.05, 0.5]]],                                   // котик
+  () => [circ(0, 0, 0.45), ...Array.from({ length: 8 }, (_, k) => { const a = k * Math.PI / 4; return [[Math.cos(a) * 0.65, Math.sin(a) * 0.65], [Math.cos(a) * 1.0, Math.sin(a) * 1.0]]; })],   // солнышко
+  () => [circ(0, -0.35, 0.18), ...Array.from({ length: 5 }, (_, k) => { const a = k * Math.PI * 2 / 5 - Math.PI / 2; return circ(Math.cos(a) * 0.38, -0.35 + Math.sin(a) * 0.38, 0.22); }), [[0, -0.1], [0, 1]], [[0, 0.6], [0.35, 0.45], [0.2, 0.7], [0, 0.6]]],   // цветочек
+  () => [poly(24, (t) => { const a = t * 2 * Math.PI; return [Math.cos(a) * 0.8 - 0.1, Math.sin(a) * 0.45]; }), [[0.6, 0], [1, -0.4], [1, 0.4], [0.6, 0]], circ(-0.5, -0.1, 0.06), [[-0.1, -0.4], [0.2, 0], [-0.1, 0.4]]],   // рыбка
+  () => [poly(40, (t) => [-1 + t * 2, Math.sin(t * 6 * Math.PI) * 0.3]), [[0.75, -0.35], [1, 0], [0.75, 0.35]]],   // волна со стрелкой
 ];
 function aiFocusBox() {                                // где сейчас работает ученик: его записи, иначе условие задачи
   const mine = [...objs.values()].filter((o) => !o.ai && o.type === "stroke").slice(-40);
@@ -808,12 +854,23 @@ async function aiDoodle() {
   ai.busy = true; ai.mood = "happy";
   const sp = aiSpot(), shapes = DOODLES[Math.floor(Math.random() * DOODLES.length)]();
   const strokes = shapes.map((pts) => ({ id: "a" + newId(), type: "stroke", c: "#c7742e", w: +Math.max(1.5, 3 / cam.z).toFixed(2), p: pts.map(([x, y]) => [+(sp.x + x * sp.S).toFixed(1), +(sp.y + y * sp.S).toFixed(1)]), ai: 1, tmp: 1, _n: 0 }));
+  const t = ["Это тебе 😺", "Заскучал и порисовал 🐾", "Рисую, пока ты думаешь ✨"][Math.floor(Math.random() * 3)];
+  send({ t: "cat_doodle", say: t, strokes: strokes.map((o) => ({ c: o.c, w: o.w, p: o.p })) });
   strokes.forEach((o) => objs.set(o.id, o));
   for (const o of strokes) { await aiMoveTo(o.p[0][0], o.p[0][1], 5); await aiReveal(o); }
-  const t = ["Это тебе 😺", "Заскучал и порисовал 🐾", "Рисую, пока ты думаешь ✨"][Math.floor(Math.random() * 3)];
   aiLog("cat", t); const talk = aiSay(t);
   setTimeout(() => { strokes.forEach((o) => objs.delete(o.id)); invalidate(); }, 25000);
   await talk; ai.busy = false; ai.mood = "chill";
+}
+async function aiDoodleShow(m) {                      // чужие каракули кота: рисуются у меня тем же образом, но кота не двигают (его позиция приходит от ведущего)
+  const strokes = (m.strokes || []).filter((o) => o && Array.isArray(o.p) && o.p.length > 1).map((o) => ({ id: "a" + newId(), type: "stroke", c: o.c, w: o.w, p: o.p, ai: 1, tmp: 1, _n: 0 }));
+  if (!strokes.length) return;
+  ai.busy = true; ai.mood = "happy";
+  strokes.forEach((o) => objs.set(o.id, o));
+  for (const o of strokes) await aiReveal(o);
+  if (m.say) { aiLog("cat", m.say); await aiSay(m.say); }
+  setTimeout(() => { strokes.forEach((o) => objs.delete(o.id)); invalidate(); }, 25000);
+  ai.busy = false; ai.mood = "chill";
 }
 async function aiOffer() {
   ai.busy = true; ai.mood = "think"; aiLook();
@@ -857,6 +914,7 @@ function aiTick(now) {
     if (!ai.lastAct) { ai.lastAct = now; ai.idleAt = nudgeGap(); }
     if (!ai.busy && !ai.thinking && !aiBusyTimer && !document.hidden && (ai.nudges || 0) < 4 && now - ai.lastAct > ai.idleAt) { ai.lastAct = now; ai.idleAt = nudgeGap(); aiNudge(); }
     if (!ai.busy && !ai.thinking) {
+      aiRehome(now, false);
       const [ax, ay] = aiAnchor();
       if (now > ai.nextIdle || (Math.hypot(ai.x - ax, ai.y - ay) > 260 / cam.z && now - (ai.lastPick || 0) > 600)) aiIdlePick(now);
     }
@@ -879,7 +937,7 @@ function drawCat() {
   const bub = $("aib");
   const txt = ai.thinking ? ".".repeat(1 + Math.floor(now / 380) % 3) : ai.text.slice(0, Math.floor(ai.shown));
   if (!txt) { bub.style.display = "none"; return; }
-  bub.textContent = txt; bub.style.display = "block";
+  bub.innerHTML = richHTML(txt); bub.style.display = "block";
   const bw = bub.offsetWidth, bh = bub.offsetHeight;
   let bx = sx + 26, by = sy - bh - 6;
   if (bx + bw > VW - 8) bx = sx - 26 - bw;
