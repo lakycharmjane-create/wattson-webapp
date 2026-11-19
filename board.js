@@ -86,6 +86,12 @@ function connect() {
         else if (m.why === "cap") toast((m.parts || [])[0] || "Дневной лимит монет исчерпан", 6000);
         else if (m.n > 0) toast(`🪙 +${m.n} за задачу (${(m.parts || []).join(", ")}). Всего с доски: ${m.total}`, 6000);
         break;
+      case "cat_hi": ai.hi = m.say || ""; bondShow(m); break;                          // личное приветствие кота (помнит тебя) и уровень дружбы
+      case "bond":
+        bondShow(m);
+        if (m.up) { toast(`💞 Дружба с Ваттсоном: «${m.name}»!`, 5000); aiRun(() => aiReact("happy", `Слушай, а мы теперь «${m.name.toLowerCase()}» 😺`)); }
+        break;
+      case "cheer": aiRun(() => aiReact("happy", m.say)); break;
       case "ai_wait": aiLog("sys", m.n === 1 && m.now ? `Ваттсон отвечает ${m.now} — ты следующий ✋` : `Твой вопрос в очереди, впереди: ${m.n} ⏳`); break;
       case "ai_act": aiRun(() => aiAct(m)); break;
       case "ai_err": aiFail(m.why, m.who); break;
@@ -790,7 +796,7 @@ function aiJoin() {                                     // кот прилета
   ai.nextIdle = ai.enterUntil + 1500; ai.nextSwitch = performance.now() + 40000 + Math.random() * 50000;
   aiMoveTo(tx, ty, 2.6); invalidate();
 }
-function aiHello() { aiRun(async () => { await aiMoveTo(ai.tx, ai.ty, 2.6); ai.mood = "happy"; const t = "Мяу! Я Ваттсон 😺 Что решаем? Пиши, что у тебя не получается."; aiLog("cat", t); await aiSay(t); ai.mood = "chill"; }); }
+function aiHello() { aiRun(async () => { await aiMoveTo(ai.tx, ai.ty, 2.6); await sleep(350); ai.mood = "happy"; const t = ai.hi || "Мяу! Я Ваттсон 😺 Что решаем? Пиши, что у тебя не получается."; ai.hi = ""; aiLog("cat", t); await aiSay(t); ai.mood = "chill"; }); }
 const aiMoveTo = (x, y, k = 4.5) => new Promise((res) => {
   ai.tx = x; ai.ty = y; ai.k = k * (0.8 + Math.random() * 0.5); const t0 = performance.now();
   (function w() { if (Math.hypot(ai.x - ai.tx, ai.y - ai.ty) * cam.z < 8 || performance.now() - t0 > 3000) res(); else setTimeout(w, 40); })();
@@ -1018,6 +1024,11 @@ $("aiKeyIn").addEventListener("keydown", (e) => { if (e.key === "Enter") $("aiKe
 $("aiBtn").onclick = () => toggleAi();
 $("aiClose").onclick = () => toggleAi(false);
 $("aiClean").onclick = () => { const ids = [...objs.values()].filter((o) => o.ai).map((o) => o.id); ids.forEach((id) => delObj(id, false)); toast(ids.length ? "Пометки Ваттсона стёрты" : "Пометок нет"); };
+function bondShow(m) {                                  // значок дружбы в шапке окна кота: уровень и полоса до следующего
+  const el = $("aiBond"); if (!el || m.lvl == null) return;
+  const to = m.next ? ` · ${m.bond}/${m.next}` : "";
+  el.textContent = `💞 ${m.lvlName || m.name}`; el.title = `Дружба с Ваттсоном${to}`;
+}
 function aiBusyDone() { clearTimeout(aiBusyTimer); aiBusyTimer = 0; }
 function snapshot() {
   draw();
