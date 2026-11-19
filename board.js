@@ -81,6 +81,11 @@ function connect() {
       case "cat": if (!aiLeader()) { ai.lastPos = [m.x, m.y]; ai.tx = m.x; ai.ty = m.y; ai.k = 6; invalidate(); } break;
       case "cat_doodle": if (ai.on && !aiLeader()) aiRun(() => aiDoodleShow(m)); break;
       case "diary": renderDiary(m); break;
+      case "coins":                                      // монеты за верное решение
+        if (m.why === "peek") toast("Ответ уже показывали — за эту задачу монеты не начисляются", 4500);
+        else if (m.why === "cap") toast((m.parts || [])[0] || "Дневной лимит монет исчерпан", 6000);
+        else if (m.n > 0) toast(`🪙 +${m.n} за задачу (${(m.parts || []).join(", ")}). Всего с доски: ${m.total}`, 6000);
+        break;
       case "ai_wait": aiLog("sys", m.n === 1 && m.now ? `Ваттсон отвечает ${m.now} — ты следующий ✋` : `Твой вопрос в очереди, впереди: ${m.n} ⏳`); break;
       case "ai_act": aiRun(() => aiAct(m)); break;
       case "ai_err": aiFail(m.why, m.who); break;
@@ -636,14 +641,14 @@ function checkAnswer() {
 }
 $("ansGo").onclick = checkAnswer;
 $("ansIn").addEventListener("keydown", (e) => { if (e.key === "Enter") checkAnswer(); if (e.key === "Escape") $("ansIn").blur(); e.stopPropagation(); });
-$("ansShow").onclick = () => { if (curCode && confirm("Показать эталонный ответ обоим? Лучше сначала попробовать решить.")) send({ t: "reveal", code: curCode }); };
+$("ansShow").onclick = () => { if (curCode && confirm("Показать эталонный ответ обоим? Лучше сначала попробовать решить.")) send({ t: "reveal", code: curCode, uid: UID }); };
 
 $("ansSol").onclick = () => {
   if (!curCode) return;
   if (!online) { toast("Нет связи с сервером"); return; }
   if (!confirm("Показать верное решение обоим? Лучше сначала попробовать решить.")) return;
   const [cx, cy] = screenToWorld(VW / 2, VH / 2);
-  send({ t: "solution", code: curCode, x: +cx.toFixed(1), y: +cy.toFixed(1) });
+  send({ t: "solution", code: curCode, uid: UID, x: +cx.toFixed(1), y: +cy.toFixed(1) });
 };
 
 // ---------------------------------------------------------------- список задач (поиск, разделы, случайная)
@@ -1066,6 +1071,7 @@ function renderDiary(m) {
   const t = m.totals || { tries: 0, wrong: 0, solved: 0 };
   if (!t.tries) add("div", "dnote", "Пока пусто. Проверь ответ на любой задаче (поле «Твой ответ») — и здесь появятся слабые темы и подборка задач для повторения.");
   else add("div", "dnote", `Попыток: ${t.tries} · решено задач: ${t.solved} · ошибок: ${t.wrong}`);
+  if (m.coins && m.coins.total) add("div", "dnote", `🪙 Заработано на доске: ${m.coins.total} (в бот зачисляются автоматически)`);
   if ((m.map || []).length) {                           // карта освоения: каждая клетка — тема кодификатора; зелёное = решено верно, красное = ошибки, серое = не тронуто
     add("div", "dh", "Карта освоения");
     const info = document.createElement("div"); info.className = "dmapinfo"; info.textContent = "Нажми на клетку — покажу тему и предложу задачу.";
