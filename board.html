@@ -34,16 +34,19 @@
     #cprev { width: 28px; height: 28px; border-radius: 50%; box-shadow: 0 0 0 1px var(--line); }
     .cprow b { flex: 1; font-size: 13px; color: var(--muted); }
     #tasks { right: 12px; top: 64px; width: 360px; max-width: calc(100% - 24px); max-height: calc(100% - 140px); padding: 10px; display: flex; flex-direction: column; gap: 6px; }
-    #dbody { overflow-y: auto; display: flex; flex-direction: column; gap: 8px; font-size: 13.5px; line-height: 1.35; }
-    #dbody .dnote { color: var(--muted); } #dbody .dh { font-weight: 800; margin-top: 4px; }
-    #dbody .drow { border-bottom: 1px solid var(--line); padding-bottom: 7px; display: flex; flex-direction: column; gap: 5px; } #dbody .da { display: flex; gap: 6px; flex-wrap: wrap; } #dbody .da .btn { height: 30px; font-size: 12.5px; padding: 0 9px; }
-    #dbody .dsec { font-weight: 700; font-size: 12.5px; margin-top: 4px; } #dbody .dgrid { display: flex; flex-wrap: wrap; gap: 4px; }
+    #tmap .dsec { font-weight: 700; font-size: 12.5px; margin-top: 4px; } #tmap .dgrid { display: flex; flex-wrap: wrap; gap: 4px; }
     .dcell { border: 1px solid var(--line); border-radius: 6px; padding: 3px 5px; min-width: 42px; font: 700 10.5px system-ui; color: var(--text); cursor: pointer; text-shadow: 0 0 3px var(--panel); }
-    #dbody .dmapinfo { font-size: 12.5px; color: var(--muted); background: var(--bg); border-radius: 9px; padding: 8px; }
-    #dbody .dchips { display: flex; flex-wrap: wrap; gap: 5px; } .dchip { border: 0; border-radius: 12px; padding: 5px 9px; font: 700 12px system-ui; background: var(--bg); color: var(--muted); cursor: pointer; } .dchip.ok { background: #dff5df; color: #1c6b2a; } .dchip.bad { background: #fde1e1; color: #a02525; }
-    #tsum { font-size: 12.5px; color: var(--muted); } #tprog summary { cursor: pointer; font-weight: 700; font-size: 13px; padding: 2px 0; } #tprog { max-height: 28vh; overflow-y: auto; flex: none; } #tasks { overflow: hidden; } #tlist { min-height: 60px; } #tsum, #schips { flex: none; }
     #schips { display: flex; gap: 5px; flex-wrap: wrap; } #schips i { font-style: normal; font-size: 11.5px; font-weight: 700; padding: 3px 8px; border-radius: 12px; background: var(--bg); color: var(--muted); cursor: pointer; } #schips i.on { background: var(--blue-bg); color: var(--blue); }
     .ti.bad { background: #fdecec; } @media (prefers-color-scheme: dark) { .ti.bad { background: #4a2a2a; } }
+    #tbar { height: 8px; border-radius: 5px; background: var(--line); flex: none; }
+    #tsum { display: flex; gap: 12px; font-size: 13px; font-weight: 700; flex: none; } #tsum .coin { margin-left: auto; color: #b8860b; }
+    #tweak { display: flex; gap: 5px; overflow-x: auto; flex: none; } #tweak:empty { display: none; }
+    #tweak i { flex: none; font-style: normal; font-size: 12px; font-weight: 700; padding: 4px 9px; border-radius: 12px; background: #fde1e1; color: #a02525; cursor: pointer; } #tweak i.fm { background: var(--blue-bg); color: var(--blue); padding: 4px 7px; margin-left: -2px; }
+    #schips { display: flex; gap: 5px; flex-wrap: wrap; flex: none; } #schips i { font-style: normal; font-size: 11.5px; font-weight: 700; padding: 3px 8px; border-radius: 12px; background: var(--bg); color: var(--muted); cursor: pointer; } #schips i.on { background: var(--blue-bg); color: var(--blue); }
+    #tmap { display: none; overflow-y: auto; flex: 1; min-height: 120px; } #tasks.map #tmap { display: flex; flex-direction: column; gap: 6px; }
+    #tasks.map #tlist, #tasks.map #chips, #tasks.map #schips, #tasks.map #tweak, #tasks.map #trandom, #tasks.map #tq, #tasks.map #tbar, #tasks.map #tsum { display: none; }
+    #tmap .tlegend { font-size: 12px; color: var(--muted); }
+    #fview { position: fixed; inset: 0; z-index: 40; background: var(--bg); display: none; flex-direction: column; } #fview .fh { padding: 8px 10px; } #fview iframe { flex: 1; border: 0; width: 100%; }
     #tasks .th { display: flex; align-items: center; gap: 8px; } #tasks .th b { flex: 1; } #tcount { font-size: 12px; color: var(--muted); }
     #tq { height: 34px; border: 2px solid var(--line); border-radius: 9px; padding: 0 10px; font: inherit; font-size: 14px; background: var(--bg); color: var(--text); outline: none; }
     #chips { display: flex; flex-wrap: wrap; gap: 4px; }
@@ -57,9 +60,6 @@
     #ans input { width: 150px; height: 34px; border: 2px solid var(--line); border-radius: 9px; padding: 0 10px; font: inherit; font-size: 14px; background: var(--bg); color: var(--text); outline: none; }
     #ans input:focus { border-color: var(--blue); }
     #ansCode { font-size: 12px; color: var(--muted); }
-    #vrows .vr { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 14px; }
-    #vrows .vr span { flex: 1; } #vrows .vr small { color: var(--muted); }
-    #vrows input { width: 56px; height: 30px; border: 2px solid var(--line); border-radius: 8px; text-align: center; font: inherit; background: var(--bg); color: var(--text); }
     .ti.done { background: rgba(88,204,2,.14); }
     /* правый верх */
     #top { right: 12px; top: 12px; display: flex; align-items: center; gap: 6px; padding: 6px 8px; flex-wrap: wrap; justify-content: flex-end; max-width: calc(100% - 24px); }
@@ -184,20 +184,20 @@
 
   <!-- список задач ФИПИ -->
   <div class="panel" id="tasks" style="display:none">
-    <div class="th"><b>📚 Задачи</b><span id="tcount"></span><button class="btn ghost sq" id="tclose">✕</button></div>
+    <div class="th"><b>📚 Задачи</b><span id="tcount"></span><button class="btn ghost sq" id="tmapBtn" title="Карта тем">🗺</button><button class="btn ghost sq" id="tclose">✕</button></div>
     <input id="tq" placeholder="Поиск по тексту или коду" autocomplete="off">
-    <div id="vform" style="display:none">
-      <div style="font-weight:700;margin-bottom:4px">Сколько задач из каждого раздела?</div>
-      <div id="vrows"></div>
-      <div style="display:flex;gap:6px;margin-top:6px;align-items:center"><span id="vsum" style="flex:1;color:var(--muted);font-size:13px"></span><button class="btn ghost" id="vcancel">Отмена</button><button class="btn" id="vgo">Собрать</button></div>
-    </div>
+    <div id="tbar"></div>
     <div id="tsum"></div>
-    <details id="tprog"><summary>📊 Прогресс: слабые темы, карта тем, вариант</summary><div id="dbody">Загружаю…</div></details>
+    <div id="tweak"></div>
     <div id="chips"></div>
     <div id="schips"></div>
     <div id="tlist"></div>
-    <div style="display:flex;gap:6px;margin-top:6px"><button class="btn" id="trandom" style="flex:1">🎲 Случайная</button><button class="btn ghost" id="tvariant" style="flex:1" title="Набор задач по структуре ЕГЭ">📝 Вариант</button></div>
+    <div id="tmap"></div>
+    <div style="margin-top:6px"><button class="btn" id="trandom" style="width:100%">🎲 Случайная задача</button></div>
   </div>
+
+  <!-- повторение формул — окно поверх доски -->
+  <div id="fview"><div class="fh"><button class="btn ghost" id="fclose">← К доске</button></div><iframe id="fframe" title="Повторение формул"></iframe></div>
 
   <!-- проверка ответа к задаче ФИПИ -->
   <div class="panel" id="ans" style="display:none">
@@ -266,6 +266,6 @@
       <p style="color:var(--muted);font-size:13px;margin:10px 0 0">Картинки и текст можно двигать, у картинки есть уголок для изменения размера. Файлы можно перетащить прямо на доску.</p>
     </div>
   </div>
-  <script src="board.js?v=38"></script>
+  <script src="board.js?v=39"></script>
 </body>
 </html>

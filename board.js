@@ -39,7 +39,7 @@ const newId = () => rnd(10);
 
 // ---------------------------------------------------------------- связь
 let fails = 0;
-let curCode = "", variant = [], solved = new Set();            // текущая задача ФИПИ, общий «вариант», решённые мной
+let curCode = "", solved = new Set();            // текущая задача ФИПИ, общий «вариант», решённые мной
 let ws = null, online = false, wantOpen = true, myName = "Гость", firstState = true;
 const send = (m) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(m)); };
 
@@ -48,13 +48,12 @@ function connect() {
   const user = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
   if (user) myName = user.first_name;
   ws = new WebSocket(`${WS_URL}${WS_URL.includes("?") ? "&" : "?"}room=${ROOM}`);
-  ws.onopen = () => send({ t: "hello", name: myName, init: (tg && tg.initData) || "" });
+  ws.onopen = () => send({ t: "hello", name: myName, uid: UID, init: (tg && tg.initData) || "" });
   ws.onmessage = (ev) => {
     let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
     switch (m.t) {
       case "state":
         online = true; fails = 0; showMsg("");
-        variant = m.variant || [];
         objs.clear(); m.objs.forEach((o) => objs.set(o.id, o));
         if (firstState && m.objs.length) fitAll();
         firstState = false;
@@ -66,7 +65,7 @@ function connect() {
       }
       case "add": objs.set(m.o.id, m.o); if (m.o.fipi) setCur(m.o.fipi); if (m.focus) focusOn(m.o); invalidate(); break;
       case "checked":
-        if (m.who === myName && m.ok !== null) setTimeout(() => send({ t: "diary_get", uid: UID, codes: variant }), 800);
+        if (m.who === myName && m.ok !== null) setTimeout(() => send({ t: "diary_get", uid: UID, codes: [] }), 800);
         if (m.ok === null) toast(`Для задачи ${m.code} нет эталонного ответа`);
         else { toast(`${m.ok ? "✅" : "❌"} ${m.who}: ${m.ok ? "верно!" : "неверно, попробуй ещё"}${m.v === -1 ? " (ответ в базе ФИПИ не подтвердил — возможна ошибка в эталоне)" : ""}`, m.v === -1 ? 6000 : 3500); if (m.ok && m.who === myName) { solved.add(m.code); if (TASKS) renderTasks(); } if (ai.on && !ai.busy && !ai.thinking) { if (!m.ok && m.who === myName) aiErrOffer(); else aiRun(() => aiReact(m.ok ? "happy" : "oops", m.ok ? "Есть! Так держать 😺" : "Хм, не сходится. Хочешь, разберём вместе? Напиши мне.")); } }
         break;
@@ -81,7 +80,7 @@ function connect() {
         invalidate(); break;
       case "cat": if (!aiLeader()) { ai.lastPos = [m.x, m.y]; ai.tx = m.x; ai.ty = m.y; ai.k = 6; invalidate(); } break;
       case "cat_doodle": if (ai.on && !aiLeader()) aiRun(() => aiDoodleShow(m)); break;
-      case "diary": diaryData = m; diaryMarks = m.marks || {}; renderDiary(m); if (TASKS && $("tasks").style.display !== "none") renderTasks(); break;
+      case "diary": diaryData = m; diaryMarks = m.marks || {}; if (TASKS && $("tasks").style.display !== "none") { renderTasks(); if (showMap) renderMap(); } break;
       case "coins":                                      // монеты за верное решение
         if (m.why === "peek") toast("Ответ уже показывали — за эту задачу монеты не начисляются", 4500);
         else if (m.why === "cap") toast((m.parts || [])[0] || "Дневной лимит монет исчерпан", 6000);
@@ -93,7 +92,6 @@ function connect() {
       case "ai_left": aiLeft = m.n; aiLog("sys", m.n > 0 ? `Осталось пробных запросов: ${m.n}` : "Это был последний пробный запрос. Дальше — со своим ключом 🔑"); break;
       case "focusobj": { const o = objs.get(m.id); if (o) { focusOn(o); selected = o.id; invalidate(); } break; }
       case "sol_err": toast(`Для задачи ${m.code} нет готового решения`); break;
-      case "variant": variant = m.codes || []; tsec = "__variant"; if (TASKS) renderTasks(); break;
       case "upd": { const o = objs.get(m.id); if (o) { Object.assign(o, m); delete o.t; invalidate(); } break; }
       case "mv": { const o = objs.get(m.id); if (o && o.p) { o.p = o.p.map(([x, y]) => [x + m.dx, y + m.dy]); invalidate(); } break; }
       case "del": objs.delete(m.id); if (selected === m.id) selected = null; invalidate(); break;
@@ -105,7 +103,11 @@ function connect() {
       case "denied": wantOpen = false; showMsg("Не удалось проверить, что ты из Telegram. Открой доску через бота."); break;
     }
   };
-  ws.onclose = () => { if (!online) fails++; online = false; setPeers(0, []); if (wantOpen) setTimeout(connect, 1500); };
+  ws.onclose = (e) => {
+    if (!online) fails++; online = false; setPeers(0, []);
+    if (e && e.code === 1000 && e.reason === "replaced") { wantOpen = false; showMsg("Доска открыта в другом окне — закрой лишнее или обнови страницу"); return; }
+    if (wantOpen) setTimeout(connect, 1500);
+  };
   ws.onerror = () => {};
 }
 function setPeers(n, names) {
@@ -655,35 +657,63 @@ $("ansSol").onclick = () => {
 // ---------------------------------------------------------------- список задач (поиск, разделы, случайная)
 let TASKS = null, tsec = "";
 const httpBase = () => WS_URL.replace(/^ws/, "http").replace(/\/ws.*$/, "");
-let diaryMarks = {}, diaryData = null, tstat = "";                 // метки задач из дневника: код → 1 решена верно, 2 были ошибки
+let diaryMarks = {}, diaryData = null, tstat = "", showMap = false;      // метки задач с сервера: код → 1 решена верно, 2 были ошибки
 const markOf = (code) => diaryMarks[code] || (solved.has(code) ? 1 : 0);
 function renderTasks() {
-  const q = $("tq").value.trim().toLowerCase();
+  const q = $("tq").value.trim().toLowerCase(), N = TASKS.length;
   const secs = [...new Set(TASKS.map((t) => t.s).filter(Boolean))];
   const cnt = (list) => `${list.filter((t) => markOf(t.c) === 1).length}/${list.length}`;
-  const chips = [["", `Все ${cnt(TASKS)}`], ...(variant.length ? [["__variant", `Вариант (${variant.length})`]] : []), ...secs.map((s) => [s, `${s} ${cnt(TASKS.filter((t) => t.s === s))}`])];
+  const chips = [["", `Все ${cnt(TASKS)}`], ...secs.map((s) => [s, `${s} ${cnt(TASKS.filter((t) => t.s === s))}`])];
   $("chips").innerHTML = chips.map(([s, l]) => `<i class="${s === tsec ? "on" : ""}" data-s="${s}">${l}</i>`).join("");
   $("chips").querySelectorAll("i").forEach((i) => i.addEventListener("click", () => { tsec = i.dataset.s; renderTasks(); }));
-  const nOk = TASKS.filter((t) => markOf(t.c) === 1).length, nBad = TASKS.filter((t) => markOf(t.c) === 2).length;
-  const st = [["", "Все"], ["todo", `Не решены ${TASKS.length - nOk}`], ["wrong", `С ошибками ${nBad}`], ["done", `Решены ${nOk}`]];
+  const nOk = TASKS.filter((t) => markOf(t.c) === 1).length, nBad = TASKS.filter((t) => markOf(t.c) === 2).length, pa = 100 * nOk / N, pb = 100 * (nOk + nBad) / N;
+  $("tbar").style.background = `linear-gradient(to right, #58cc02 ${pa}%, #ff6b6b ${pa}% ${pb}%, var(--line) ${pb}%)`;
+  const coins = diaryData && diaryData.coins ? diaryData.coins.total : 0;
+  $("tsum").innerHTML = `<span>✅ ${nOk}</span><span>❌ ${nBad}</span><span>⬜ ${N - nOk - nBad}</span>` + (coins ? `<span class="coin">🪙 ${coins}</span>` : "");
+  const st = [["", "Все"], ["todo", "Не решены"], ["wrong", "С ошибками"], ["done", "Решены"]];
   $("schips").innerHTML = st.map(([s, l]) => `<i class="${s === tstat ? "on" : ""}" data-s="${s}">${l}</i>`).join("");
   $("schips").querySelectorAll("i").forEach((i) => i.addEventListener("click", () => { tstat = i.dataset.s; renderTasks(); }));
-  const coins = diaryData && diaryData.coins ? diaryData.coins.total : 0;
-  $("tsum").textContent = `✅ решено ${nOk} из ${TASKS.length} · ❌ с ошибками ${nBad}` + (coins ? ` · 🪙 с доски: ${coins}` : "");
-  const byCode = new Map(TASKS.map((t) => [t.c, t]));
-  const base = tsec === "__variant" ? variant.map((c) => byCode.get(c)).filter(Boolean) : TASKS;
+  const weak = (diaryData && diaryData.topics ? diaryData.topics : []).slice(0, 4);               // слабые темы: нажми — в списке останутся задачи этой темы
+  $("tweak").innerHTML = weak.map((t) => { const k = String(t.k).split(" ")[0]; return `<i data-k="${k}">⚠ ${t.name.slice(0, 26)} · ${t.wrong}</i>` + (FORMULA_UNITS.has(t.u) ? `<i class="fm" data-u="${t.u}" title="Повторить формулы">📖</i>` : ""); }).join("");
+  $("tweak").querySelectorAll("i").forEach((i) => i.addEventListener("click", () => { if (i.dataset.u) openFormulas(i.dataset.u); else { $("tq").value = $("tq").value === i.dataset.k ? "" : i.dataset.k; tsec = ""; tstat = ""; renderTasks(); } }));
   const okStat = (t) => !tstat || (tstat === "done" && markOf(t.c) === 1) || (tstat === "wrong" && markOf(t.c) === 2) || (tstat === "todo" && markOf(t.c) !== 1);
-  const list = base.filter((t) => (tsec === "__variant" || !tsec || t.s === tsec) && okStat(t) && (!q || t.c.toLowerCase().includes(q) || t.t.toLowerCase().includes(q) || (t.k || "").toLowerCase().includes(q)));
-  $("tcount").textContent = `${list.length} из ${TASKS.length}`;
-  $("tlist").innerHTML = list.slice(0, 150).map((t) => `<div class="ti ${markOf(t.c) === 1 ? "done" : markOf(t.c) === 2 ? "bad" : ""}" data-c="${t.c}"><b>${tsec === "__variant" ? (base.indexOf(t) + 1) + ". " : ""}${t.c}${markOf(t.c) === 1 ? " ✅" : markOf(t.c) === 2 ? " ❌" : ""}${t.v === -1 ? " ⚠️" : ""}</b>${t.t.replace(/</g, "&lt;")}<small>${(t.k || t.s || "").replace(/</g, "&lt;")}</small></div>`).join("") || "<div class='ti'>Ничего не найдено</div>";
+  const list = TASKS.filter((t) => (!tsec || t.s === tsec) && okStat(t) && (!q || t.c.toLowerCase().includes(q) || t.t.toLowerCase().includes(q) || (t.k || "").toLowerCase().includes(q)));
+  $("tcount").textContent = `${list.length} из ${N}`;
+  $("tlist").innerHTML = list.slice(0, 150).map((t) => `<div class="ti ${markOf(t.c) === 1 ? "done" : markOf(t.c) === 2 ? "bad" : ""}" data-c="${t.c}"><b>${t.c}${markOf(t.c) === 1 ? " ✅" : markOf(t.c) === 2 ? " ❌" : ""}${t.v === -1 ? " ⚠️" : ""}</b>${t.t.replace(/</g, "&lt;")}<small>${(t.k || t.s || "").replace(/</g, "&lt;")}</small></div>`).join("") || "<div class='ti'>Ничего не найдено</div>";
   $("tlist").querySelectorAll(".ti[data-c]").forEach((d) => d.addEventListener("click", () => loadCode(d.dataset.c)));
 }
+// карта тем: каждая клетка — тема кодификатора (зелёное — решено верно, красное — были ошибки); нажал — сразу открывается подходящая задача
+function renderMap() {
+  const box = $("tmap"); box.textContent = "";
+  if (!diaryData || !diaryData.map) { box.textContent = "Загружаю…"; return; }
+  const lg = document.createElement("div"); lg.className = "tlegend"; lg.textContent = "🟩 верно   🟥 ошибки   ⬜ не тронуто"; box.appendChild(lg);
+  for (const sec of diaryData.map) {
+    const h = document.createElement("div"); h.className = "dsec"; h.textContent = `${sec.s} · ${sec.ok}/${sec.total}`; box.appendChild(h);
+    const grid = document.createElement("div"); grid.className = "dgrid"; box.appendChild(grid);
+    for (const t of sec.topics) {
+      const b = document.createElement("button"), a = 100 * t.ok / t.total, w = 100 * (t.ok + t.wrong) / t.total;
+      b.className = "dcell"; b.textContent = t.k || "·"; b.title = `${t.name}: верно ${t.ok}, ошибки ${t.wrong}, не тронуто ${t.total - t.ok - t.wrong}`;
+      b.style.background = `linear-gradient(to right, #58cc02 ${a}%, #ff6b6b ${a}% ${w}%, var(--line) ${w}%)`;
+      b.onclick = () => {
+        const pool = t.wrongC.length ? t.wrongC : t.noneC;
+        if (!pool.length) { toast(`${t.k} ${t.name} — тема закрыта 🎉`, 2600); return; }
+        toggleMap(false); loadCode(pool[Math.floor(Math.random() * pool.length)]); toast(`${t.k} ${t.name}`, 2600);
+      };
+      grid.appendChild(b);
+    }
+  }
+}
+function toggleMap(on) {
+  showMap = on ?? !showMap; $("tasks").classList.toggle("map", showMap); $("tmapBtn").textContent = showMap ? "📚" : "🗺";
+  if (showMap) { renderMap(); if (!diaryData) send({ t: "diary_get", uid: UID, codes: [] }); }
+}
+$("tmapBtn").onclick = () => toggleMap();
 async function toggleTasks(on) {
   const p = $("tasks"), show = on ?? p.style.display === "none";
   p.style.display = show ? "flex" : "none";
   if (!show) return;
-  toggleCp(false);
-  send({ t: "diary_get", uid: UID, codes: variant });
+  toggleCp(false); toggleMap(false);
+  send({ t: "diary_get", uid: UID, codes: [] });
   if (!TASKS) {
     $("tlist").innerHTML = "<div class='ti'>Загружаю список…</div>";
     try { TASKS = await (await fetch(httpBase() + "/tasks")).json(); } catch (e) { $("tlist").innerHTML = "<div class='ti'>Не удалось загрузить список задач</div>"; return; }
@@ -694,36 +724,8 @@ $("tasksBtn").onclick = () => toggleTasks();
 $("tclose").onclick = () => toggleTasks(false);
 $("tq").addEventListener("input", () => TASKS && renderTasks());
 $("tq").addEventListener("keydown", (e) => { if (e.key === "Escape") toggleTasks(false); e.stopPropagation(); });
-// «Вариант»: ученик сам выбирает, сколько задач из каждого раздела. Номера задач в базе не сохранились, поэтому — по разделам.
-const DEFAULT_Q = { "Механика": 7, "Молекулярная физика": 5, "Электродинамика": 6, "Квантовая физика": 3, "Оптика": 1 };
-let vq = { ...DEFAULT_Q };
-try { Object.assign(vq, JSON.parse(localStorage.getItem("wf_vq") || "{}")); } catch (e) {}
-function vSum() { const n = [...document.querySelectorAll("#vrows input")].reduce((s, i) => s + (+i.value || 0), 0); $("vsum").textContent = `Всего: ${n}`; return n; }
-function openVForm() {
-  if (!TASKS) return;
-  const have = {}; TASKS.filter((t) => t.v !== -1).forEach((t) => { have[t.s] = (have[t.s] || 0) + 1; });
-  $("vrows").innerHTML = Object.keys(have).sort((x, y) => (DEFAULT_Q[y] ? 1 : 0) - (DEFAULT_Q[x] ? 1 : 0)).map((s) =>
-    `<div class="vr"><span>${s} <small>(есть ${have[s]})</small></span><input type="number" min="0" max="${have[s]}" value="${Math.min(vq[s] || 0, have[s])}" data-s="${s}"></div>`).join("");
-  $("vrows").querySelectorAll("input").forEach((i) => i.addEventListener("input", vSum));
-  vSum(); $("vform").style.display = "block"; $("tlist").style.display = "none"; $("chips").style.display = "none";
-}
-function closeVForm() { $("vform").style.display = "none"; $("tlist").style.display = ""; $("chips").style.display = ""; }
-$("tvariant").onclick = openVForm;
-$("vcancel").onclick = closeVForm;
-$("vgo").onclick = () => {
-  if (!online) { toast("Нет связи с сервером"); return; }
-  const codes = []; vq = {};
-  document.querySelectorAll("#vrows input").forEach((i) => {
-    const n = Math.max(0, Math.min(+i.value || 0, +i.max)); vq[i.dataset.s] = n;
-    codes.push(...TASKS.filter((t) => t.s === i.dataset.s && t.v !== -1).sort(() => Math.random() - 0.5).slice(0, n).map((t) => t.c));
-  });
-  if (!codes.length) { toast("Выбери хотя бы одну задачу"); return; }
-  try { localStorage.setItem("wf_vq", JSON.stringify(vq)); } catch (e) {}
-  send({ t: "variant", codes }); variant = codes; tsec = "__variant"; solved = new Set(); closeVForm(); renderTasks();
-  toast(`Вариант из ${codes.length} задач собран — выбирай задачи из списка по порядку`);
-};
 $("trandom").onclick = () => {
-  const pool = TASKS ? TASKS.filter((t) => t.v !== -1 && (!tsec || tsec === "__variant" || t.s === tsec)) : [];
+  const pool = TASKS ? TASKS.filter((t) => t.v !== -1 && (!tsec || t.s === tsec)) : [];
   if (pool.length) loadCode(pool[Math.floor(Math.random() * pool.length)].c);
 };
 
@@ -1066,59 +1068,15 @@ $("aiIn").addEventListener("keydown", (e) => { if (e.key === "Enter") aiSend(); 
 
 // ---------------------------------------------------------------- 📓 Дневник ошибок: слабые темы, похожие задачи, повторение формул, итоги варианта
 const FORMULA_UNITS = new Set(["1.1", "1.2", "1.3", "1.4", "1.5", "2.1", "2.2", "3.1", "3.2"]);   // темы, для которых есть «Повторение формул»
-function openFormulas(u) { const url = new URL("index.html?r=" + u, location.href).href; if (tg && tg.openLink) tg.openLink(url); else window.open(url, "_blank", "noopener"); }
-function renderDiary(m) {
-  const box = $("dbody"); box.textContent = "";
-  const add = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; box.appendChild(e); return e; };
-  const btn = (parent, label, fn, cls = "btn ghost") => { const b = document.createElement("button"); b.className = cls; b.textContent = label; b.onclick = fn; parent.appendChild(b); return b; };
-  const t = m.totals || { tries: 0, wrong: 0, solved: 0 };
-  if (!t.tries) add("div", "dnote", "Пока пусто. Проверь ответ на любой задаче (поле «Твой ответ») — и здесь появятся слабые темы и подборка задач для повторения.");
-  else add("div", "dnote", `Попыток: ${t.tries} · решено задач: ${t.solved} · ошибок: ${t.wrong}`);
-  if (m.coins && m.coins.total) add("div", "dnote", `🪙 Заработано на доске: ${m.coins.total} (в бот зачисляются автоматически)`);
-  if ((m.map || []).length) {                           // карта освоения: каждая клетка — тема кодификатора; зелёное = решено верно, красное = ошибки, серое = не тронуто
-    add("div", "dh", "Карта освоения");
-    const info = document.createElement("div"); info.className = "dmapinfo"; info.textContent = "Нажми на клетку — покажу тему и предложу задачу.";
-    add("div", "dnote", "🟩 решено верно · 🟥 были ошибки · ⬜ не тронуто"); box.appendChild(info);
-    for (const sec of m.map) {
-      const pct = sec.total ? Math.round(100 * sec.ok / sec.total) : 0;
-      add("div", "dsec", `${sec.s} · решено ${sec.ok} из ${sec.total} (${pct}%)`);
-      const grid = add("div", "dgrid");
-      for (const t of sec.topics) {
-        const b = document.createElement("button"), a = 100 * t.ok / t.total, w = 100 * (t.ok + t.wrong) / t.total;
-        b.className = "dcell"; b.textContent = t.k || "·"; b.title = `${t.name}: верно ${t.ok}, с ошибками ${t.wrong}, не тронуто ${t.total - t.ok - t.wrong}`;
-        b.style.background = `linear-gradient(to right, #58cc02 ${a}%, #ff6b6b ${a}% ${w}%, var(--line) ${w}%)`;
-        b.onclick = () => {
-          info.textContent = ""; const l = document.createElement("div"); l.textContent = `${t.k} ${t.name}: верно ${t.ok}, с ошибками ${t.wrong}, не тронуто ${t.total - t.ok - t.wrong} (всего ${t.total})`; info.appendChild(l);
-          const acts = document.createElement("div"); acts.className = "da"; info.appendChild(acts);
-          const pool = t.wrongC.length ? t.wrongC : t.noneC;
-          if (pool.length) btn(acts, t.wrongC.length ? "🔁 Повторить ошибочную" : "🎯 Решить новую", () => { loadCode(pool[Math.floor(Math.random() * pool.length)]); });
-          if (FORMULA_UNITS.has(t.u)) btn(acts, "📖 Формулы", () => openFormulas(t.u));
-        };
-        grid.appendChild(b);
-      }
-    }
-  }
-  if ((m.topics || []).length) {
-    add("div", "dh", "Где чаще всего ошибаешься");
-    for (const tp of m.topics) {
-      const row = add("div", "drow"); const l = document.createElement("div"); l.className = "dl"; l.textContent = `${tp.name} · ошибок: ${tp.wrong}`; row.appendChild(l);
-      const acts = document.createElement("div"); acts.className = "da"; row.appendChild(acts);
-      const sg = (m.suggest || []).find((x) => x.name === tp.name);
-      if (sg) btn(acts, "🎯 Похожая задача", () => { loadCode(sg.c); });
-      if (FORMULA_UNITS.has(tp.u)) btn(acts, "📖 Формулы", () => openFormulas(tp.u));
-    }
-  }
-  if (variant.length) {
-    add("div", "dh", "Вариант");
-    const chips = add("div", "dchips");
-    for (const c of variant) {
-      const mk = markOf(c); const b = document.createElement("button");
-      b.className = "dchip " + (mk === 1 ? "ok" : mk === 2 ? "bad" : ""); b.textContent = (mk === 1 ? "✅ " : mk === 2 ? "❌ " : "· ") + c; b.onclick = () => { loadCode(c); }; chips.appendChild(b);
-    }
-    const b = btn(box, "📊 Пусть кот разберёт мой вариант", () => { toggleTasks(false); toggleAi(true); aiAsk("📊 Разбери мой вариант", "variant"); }, "btn");
-    if (!t.tries) b.disabled = true;
-  }
+function openFormulas(u) {                              // повторение формул — окно поверх доски; доска остаётся жить под ним
+  $("fframe").src = "index.html?r=" + encodeURIComponent(u) + "&embed=1"; $("fview").style.display = "flex";
+  try { if (tg && tg.BackButton) { tg.BackButton.show(); tg.BackButton.onClick(closeFormulas); } } catch (e) {}
 }
+function closeFormulas() {
+  $("fview").style.display = "none"; $("fframe").src = "about:blank";
+  try { if (tg && tg.BackButton) { tg.BackButton.offClick(closeFormulas); tg.BackButton.hide(); } } catch (e) {}
+}
+$("fclose").onclick = closeFormulas;
 
 // ---------------------------------------------------------------- приглашение, помощь
 const inviteLink = () => (BOT ? `https://t.me/${BOT}?start=room_${ROOM}` : location.href);
@@ -1150,7 +1108,7 @@ window.addEventListener("keydown", (e) => {
   if (k === "i") { $("file").click(); return; }
   if (k === "f") { e.preventDefault(); $("code").focus(); return; }
   if (k === "?" || (e.code === "Slash" && e.shiftKey) || e.key === "F1") { e.preventDefault(); toggleHelp(); return; }
-  if (k === "escape") { toggleHelp(false); toggleCp(false); toggleTasks(false); toggleAi(false); selected = null; invalidate(); return; }
+  if (k === "escape") { closeFormulas(); toggleMap(false); toggleHelp(false); toggleCp(false); toggleTasks(false); toggleAi(false); selected = null; invalidate(); return; }
   if (k === "delete" || k === "backspace") { if (selected) { e.preventDefault(); delObj(selected); } return; }
   if (e.code === "Digit1" && e.shiftKey) { e.preventDefault(); fitAll(); return; }
   if (/^[1-7]$/.test(k)) { setColor(PALETTE[+k - 1]); return; }
