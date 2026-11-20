@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <title>Дуэли</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link rel="stylesheet" href="duel.css?v=2">
+</head>
+<body>
+  <div id="app">
+
+    <!-- подключение / ошибки -->
+    <section class="screen center" id="s-conn">
+      <img src="cat.png" alt="" class="mascot spin">
+      <h2 id="connTitle">Подключаемся…</h2>
+      <p id="connText" class="muted"></p>
+      <button class="btn blue hidden" id="connBtn">Попробовать ещё раз</button>
+    </section>
+
+    <!-- лобби -->
+    <section class="screen" id="s-lobby">
+      <header class="top">
+        <div class="who">
+          <div class="av" id="lbAv"></div>
+          <div class="grow">
+            <div class="nm" id="lbName"></div>
+            <div class="lg" id="lbLeague"></div>
+            <div class="bar"><i id="lbBar"></i></div>
+          </div>
+        </div>
+        <div class="pills">
+          <div class="pill" id="lbCoins">🪙 0</div>
+          <div class="pill hot hidden" id="lbStreak">🔥 0</div>
+        </div>
+      </header>
+
+      <main class="lobbyMain">
+        <div class="hero">
+          <img src="cat.png" alt="" class="heroCat">
+          <div>
+            <h1>Дуэль по физике</h1>
+            <p>Одна задача на двоих. Кто решит первым — берёт раунд.</p>
+          </div>
+        </div>
+
+        <div class="stakes" id="stakes"></div>
+        <button class="btn gold big pulse" id="playBtn">⚔️ ИГРАТЬ</button>
+        <p class="hint" id="playHint">Подберём соперника. Не найдём за 20 секунд — поиграешь с Ваттсоном</p>
+
+        <div class="row2">
+          <button class="btn purple" id="inviteBtn">👥 Позвать друга</button>
+          <button class="btn teal" id="trainBtn">😺 С Ваттсоном</button>
+        </div>
+
+        <div class="tiles">
+          <button class="tile" id="chestsBtn"><span class="ico">🎁</span><b>Сундуки</b><i class="badge hidden" id="chestBadge">0</i></button>
+          <button class="tile" id="shopBtn"><span class="ico">🛒</span><b>Магазин</b></button>
+          <button class="tile" id="topBtn"><span class="ico">🏆</span><b>Топ</b></button>
+          <button class="tile" id="rulesBtn"><span class="ico">❓</span><b>Правила</b></button>
+        </div>
+
+        <div class="bag" id="bag"></div>
+        <p class="hint" id="dailyHint"></p>
+      </main>
+    </section>
+
+    <!-- поиск -->
+    <section class="screen center" id="s-queue">
+      <div class="radar"><i></i><i></i><i></i><span>🔍</span></div>
+      <h2>Ищем соперника…</h2>
+      <p class="muted" id="qText"></p>
+      <button class="btn ghost" id="qCancel">Отмена</button>
+    </section>
+
+    <!-- вызов друга -->
+    <section class="screen center" id="s-invite">
+      <div class="envelope">💌</div>
+      <h2>Вызов готов!</h2>
+      <p class="muted" id="invText">Отправь ссылку другу — дуэль начнётся, как только он зайдёт.</p>
+      <div class="linkbox" id="invLink"></div>
+      <button class="btn gold" id="invShare">📤 Отправить другу</button>
+      <button class="btn blue" id="invCopy">📋 Скопировать ссылку</button>
+      <div class="waiting">Ждём друга<span class="dots"><i>.</i><i>.</i><i>.</i></span></div>
+      <button class="btn ghost" id="invCancel">Отменить вызов</button>
+    </section>
+
+    <!-- «VS» -->
+    <section class="screen vs" id="s-vs">
+      <div class="vsSide you" id="vsYou"></div>
+      <div class="vsMid">
+        <div class="vsText">VS</div>
+        <div class="vsStake" id="vsStake"></div>
+        <div class="vsCount" id="vsCount"></div>
+      </div>
+      <div class="vsSide opp" id="vsOpp"></div>
+    </section>
+
+    <!-- бой -->
+    <section class="screen" id="s-battle">
+      <header class="hud">
+        <div class="pl you"><div class="av sm" id="hYouAv"></div><div class="pn" id="hYouName"></div></div>
+        <div class="mid">
+          <div class="score"><b id="hYouScore">0</b><span>:</span><b id="hOppScore">0</b></div>
+          <div class="pips" id="pips"></div>
+          <div class="timer" id="timer">4:00</div>
+        </div>
+        <div class="pl opp"><div class="av sm" id="hOppAv"></div><div class="pn" id="hOppName"></div><div class="bubble" id="bubble"></div></div>
+      </header>
+      <div class="tbar"><i id="tbar"></i></div>
+
+      <div class="status" id="status"></div>
+
+      <div class="cardwrap" id="cardwrap">
+        <div class="scr" id="scr"><div class="inner">
+          <img id="taskImg" alt="Условие задачи">
+          <canvas id="smokeCv"></canvas>
+          <div class="puffs"><i></i><i></i><i></i><i></i></div>
+        </div></div>
+        <div class="lockMask hidden" id="lockMask"><span id="lockText"></span></div>
+      </div>
+
+      <div class="dock">
+        <div class="items" id="items"></div>
+        <div class="emotes hidden" id="emotes"></div>
+        <div class="answer" id="answer"><span id="ansText" class="ph">ответ</span></div>
+        <div class="pad" id="pad">
+          <button data-k="7">7</button><button data-k="8">8</button><button data-k="9">9</button><button data-k="⌫" class="fn">⌫</button>
+          <button data-k="4">4</button><button data-k="5">5</button><button data-k="6">6</button><button data-k="-" class="fn">−</button>
+          <button data-k="1">1</button><button data-k="2">2</button><button data-k="3">3</button><button data-k="," class="fn">,</button>
+          <button data-k="0" class="w2">0</button><button data-k="OK" class="ok w2">Ответить</button>
+        </div>
+      </div>
+
+      <!-- итог раунда -->
+      <div class="overlay hidden" id="roundEnd">
+        <div class="rcard" id="rCard"></div>
+      </div>
+    </section>
+
+    <!-- итог дуэли -->
+    <section class="screen result" id="s-result"></section>
+
+    <!-- окна -->
+    <div class="modal hidden" id="modal"><div class="sheet" id="sheet"></div></div>
+    <div class="toast hidden" id="toast"></div>
+  </div>
+  <script src="duel.js?v=2"></script>
+</body>
+</html>
