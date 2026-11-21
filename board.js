@@ -3,7 +3,12 @@
 // Объекты доски: stroke (штрих), image (картинка), text (текст). Координаты — «мировые», камера: cam {x, y, z}.
 //   экран = (мир − cam) · z      мир = экран / z + cam
 
-const tg = window.Telegram ? window.Telegram.WebApp : null;
+// ⚔️ Режим дуэли (dm=1): доска внутри окна дуэли, у каждого игрока своя закрытая комната; ro=1 — только смотреть (предмет «подглядеть»).
+// Управляет страница дуэли (duel.html) через postMessage: {dm:"round", n, img} — новый раунд, {dm:"smoke", a} — дым над условием, {dm:"end"} — конец.
+const DM = new URLSearchParams(location.search).get("dm") === "1", RO = DM && new URLSearchParams(location.search).get("ro") === "1";
+const dm = { want: null, done: 0, taskId: "", smoke: 0, skipClear: 0, autoFit: false };
+const tg = !DM && window.Telegram ? window.Telegram.WebApp : null;
+if (DM) document.body.classList.add("dm", ...(RO ? ["ro"] : []));
 if (tg) { tg.ready(); tg.expand(); try { if (tg.isVersionAtLeast && tg.isVersionAtLeast("7.7")) tg.disableVerticalSwipes(); } catch (e) {} }
 const $ = (id) => document.getElementById(id);
 
@@ -13,7 +18,7 @@ const rnd = (n) => Array.from({ length: n }, () => "abcdefghjkmnpqrstuvwxyz23456
 let ROOM = Q.get("room") || (/^room_[a-z0-9]{6,16}$/.test(startParam) ? startParam.slice(5) : "") || rnd(8);
 const WS_URL = Q.get("ws") || "";
 const BOT = Q.get("b") || "";
-try { history.replaceState(null, "", `?room=${ROOM}${WS_URL ? "&ws=" + encodeURIComponent(WS_URL) : ""}${BOT ? "&b=" + BOT : ""}`); } catch (e) {}
+if (!DM) try { history.replaceState(null, "", `?room=${ROOM}${WS_URL ? "&ws=" + encodeURIComponent(WS_URL) : ""}${BOT ? "&b=" + BOT : ""}`); } catch (e) {}
 
 function showMsg(text) { const m = $("msg"); m.textContent = text; m.style.display = text ? "flex" : "none"; }
 function toast(text, ms = 2200) { const t = $("toast"); t.textContent = text; t.classList.add("show"); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove("show"), ms); }
@@ -41,12 +46,13 @@ const newId = () => rnd(10);
 let fails = 0;
 let curCode = "", solved = new Set();            // текущая задача ФИПИ, общий «вариант», решённые мной
 let ws = null, online = false, wantOpen = true, myName = "Гость", firstState = true;
-const send = (m) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(m)); };
+const send = (m) => { if (RO && m.t !== "hello") return; if (ws && ws.readyState === 1) ws.send(JSON.stringify(m)); };
 
 function connect() {
   if (!WS_URL) { showMsg("Сервер доски не подключён. Открой доску через бота: команда /together."); return; }
   const user = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
   if (user) myName = user.first_name;
+  if (DM) myName = RO ? "👀" : (Q.get("n") || "Игрок").slice(0, 24);
   ws = new WebSocket(`${WS_URL}${WS_URL.includes("?") ? "&" : "?"}room=${ROOM}`);
   ws.onopen = () => send({ t: "hello", name: myName, uid: UID, init: (tg && tg.initData) || "" });
   ws.onmessage = (ev) => {
@@ -57,7 +63,7 @@ function connect() {
         objs.clear(); m.objs.forEach((o) => objs.set(o.id, o));
         if (firstState && m.objs.length) fitAll();
         firstState = false;
-        invalidate(); break;
+        invalidate(); if (DM) dmApply(); if (RO) setTimeout(fitAll, 600); break;
       case "seg": {
         let s = objs.get(m.id);
         if (!s) { s = { id: m.id, type: "stroke", c: m.c, w: m.w, p: [] }; objs.set(m.id, s); }
@@ -101,7 +107,9 @@ function connect() {
       case "upd": { const o = objs.get(m.id); if (o) { Object.assign(o, m); delete o.t; invalidate(); } break; }
       case "mv": { const o = objs.get(m.id); if (o && o.p) { o.p = o.p.map(([x, y]) => [x + m.dx, y + m.dy]); invalidate(); } break; }
       case "del": objs.delete(m.id); if (selected === m.id) selected = null; invalidate(); break;
-      case "clear": objs.clear(); selected = null; hist = []; redo = []; syncButtons(); invalidate(); toast("Доску очистили"); break;
+      case "clear": if (DM && dm.skipClear > 0) { dm.skipClear--; break; }        // свою же очистку (между раундами) сервер эхом возвращает — не стираем только что положенное условие
+        objs.clear(); selected = null; hist = []; redo = []; syncButtons(); invalidate(); if (!DM) toast("Доску очистили"); break;
+      case "locked": wantOpen = false; showMsg("🔒 Время подсматривания вышло"); break;
       case "cur": cursors.set(m.who, { x: m.x, y: m.y, c: m.c, t: Date.now() }); invalidate(); break;
       case "peers": setPeers(m.n, m.names); break;
       case "fipi_err": toast(`Задача с кодом ${m.code || "…"} не найдена 🙈`); break;
@@ -111,6 +119,7 @@ function connect() {
   };
   ws.onclose = (e) => {
     if (!online) fails++; online = false; setPeers(0, []);
+    if (e && e.code === 1000 && (e.reason === "time" || e.reason === "locked")) { wantOpen = false; if (RO) showMsg("🔒 Время подсматривания вышло"); return; }
     if (e && e.code === 1000 && e.reason === "replaced") { wantOpen = false; showMsg("Доска открыта в другом окне — закрой лишнее или обнови страницу"); return; }
     if (wantOpen) setTimeout(connect, 1500);
   };
@@ -128,6 +137,7 @@ function resize() {
   dpr = window.devicePixelRatio || 1;
   VW = window.innerWidth; VH = window.innerHeight;
   cv.width = Math.round(VW * dpr); cv.height = Math.round(VH * dpr);
+  if (DM && dm.autoFit) dmFit();
   invalidate();
 }
 const imgCache = new Map();
@@ -207,7 +217,7 @@ function drawStroke(o) {
 
 function draw() {
   dirty = false;
-  const dark = window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches;
+  const dark = !DM && window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.fillStyle = dark ? "#262a31" : "#ffffff"; ctx.fillRect(0, 0, cv.width, cv.height);
   const k = cam.z * dpr;
@@ -230,6 +240,7 @@ function draw() {
       const im = imageOf(o);
       if (im.complete && im.naturalWidth) ctx.drawImage(im, o.x, o.y, o.w, o.h);
       else { ctx.fillStyle = "#e9ecf0"; ctx.fillRect(o.x, o.y, o.w, o.h); }
+      if (DM && dm.smoke > 0 && o.id === dm.taskId) drawSmoke(o);
     } else if (o.type === "text") {
       ctx.fillStyle = o.c; ctx.font = textFont(o); ctx.textBaseline = "top";
       otext(o).split("\n").forEach((l, i) => richDraw(l, o.x, o.y + i * o.size * 1.2, o.size));
@@ -301,6 +312,7 @@ cv.addEventListener("wheel", (e) => {
 function syncButtons() { $("undo").disabled = !hist.length; $("redo").disabled = !redo.length; }
 function record(op, obj) { hist.push({ op, obj }); if (hist.length > 200) hist.shift(); redo = []; syncButtons(); }
 function addObj(o, rec = true) {
+  if (RO) return;
   objs.set(o.id, o); send({ t: "add", o }); if (rec) record("add", o); invalidate();
 }
 function delObj(id, rec = true) {
@@ -331,6 +343,7 @@ $("clear").onclick = () => {
 // ---------------------------------------------------------------- инструменты
 const tbs = document.querySelectorAll("#tools [data-tool]");
 function setTool(t) {
+  if (RO) t = "hand";
   tool = t; tbs.forEach((b) => b.classList.toggle("on", b.dataset.tool === t));
   if (t !== "select") { selected = null; invalidate(); }
   cv.style.cursor = { select: "default", hand: "grab", pen: "crosshair", eraser: "cell", text: "text" }[t] || "default";
@@ -549,6 +562,7 @@ function endPointer(e) {
 cv.addEventListener("pointerup", endPointer);
 cv.addEventListener("pointercancel", endPointer);
 cv.addEventListener("dblclick", (e) => {
+  if (RO) return;
   const [wx, wy] = screenToWorld(e.clientX, e.clientY), hit = hitTest(wx, wy);
   if (hit && hit.type === "text") editText(hit);
   else if (!hit && tool === "select") editText(null, wx, wy);
@@ -994,7 +1008,7 @@ const lsGet = (k) => { try { return localStorage.getItem(k) || ""; } catch (e) {
 const lsSet = (k, v) => { try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k); } catch (e) {} };
 const cloud = tg && tg.CloudStorage && tg.isVersionAtLeast && tg.isVersionAtLeast("6.9") ? tg.CloudStorage : null;
 const tgUser = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
-let UID = tgUser ? "t" + tgUser.id : lsGet("wdid"); if (!UID) { UID = "d" + rnd(14); lsSet("wdid", UID); }
+let UID = DM ? "" : tgUser ? "t" + tgUser.id : lsGet("wdid"); if (!UID && !DM) { UID = "d" + rnd(14); lsSet("wdid", UID); }
 let aiFree = lsGet("wf") === "1", aiKey = lsGet("wk"), aiTrial = lsGet("wt") === "1", aiLeft = lsGet("wtd") ? 0 : null, aiSetup = false;
 function keySave(v) { aiKey = v; lsSet("wk", v); if (cloud) { try { v ? cloud.setItem("wk", v, () => {}) : cloud.removeItem("wk", () => {}); } catch (e) {} } }
 if (cloud) { try { cloud.getItem("wk", (err, v) => { if (!err && v && !aiKey) { aiKey = v; lsSet("wk", v); if ($("aip").style.display === "flex") { aiSetup = false; aiGate(); } } }); } catch (e) {} }
@@ -1106,7 +1120,7 @@ document.addEventListener("click", (e) => { const b = e.target.closest && e.targ
 // ---------------------------------------------------------------- горячие клавиши
 window.addEventListener("keydown", (e) => {
   const tag = document.activeElement && document.activeElement.tagName;
-  if (/INPUT|TEXTAREA/.test(tag)) return;
+  if (/INPUT|TEXTAREA/.test(tag) || RO) return;
   // горячие клавиши работают в любой раскладке (на русской e.key = «з», «у»…), поэтому буквы и знаки берём по физической клавише
   const byCode = { BracketLeft: "[", BracketRight: "]", Equal: "=", Minus: "-", NumpadAdd: "+", NumpadSubtract: "-" };
   const k = (/^Key[A-Z]$/.test(e.code) ? e.code.slice(3).toLowerCase() : byCode[e.code]) || e.key.toLowerCase(), ctrl = e.ctrlKey || e.metaKey;
@@ -1137,4 +1151,45 @@ window.addEventListener("blur", () => { spaceDown = false; });
 
 window.addEventListener("resize", resize);
 resize(); syncButtons(); setTool("select"); setPeers(0, []);
+// ---------------------------------------------------------------- ⚔️ режим дуэли
+function drawSmoke(o) {                                   // 💨 соперник бросил шашку: условие на доске тоже затянуто дымом
+  ctx.save(); ctx.beginPath(); ctx.rect(o.x, o.y, o.w, o.h); ctx.clip();
+  ctx.fillStyle = `rgba(120,120,135,${dm.smoke})`; ctx.fillRect(o.x, o.y, o.w, o.h);
+  for (let i = 0; i < 7; i++) {
+    const cx = o.x + o.w * ((i * 0.37 + 0.1) % 1), cy = o.y + o.h * ((i * 0.53 + 0.2) % 1), r = Math.max(o.w, o.h) * 0.35;
+    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r); g.addColorStop(0, `rgba(90,90,105,${dm.smoke})`); g.addColorStop(1, "rgba(90,90,105,0)");
+    ctx.fillStyle = g; ctx.fillRect(o.x, o.y, o.w, o.h);
+  }
+  ctx.restore();
+}
+function dmFit() {
+  const o = objs.get(dm.taskId);
+  if (!o || VW < 60) return;
+  cam.z = Math.min(1.3, Math.max(0.15, (VW * 0.94) / o.w)); cam.x = -(VW * 0.03) / cam.z; cam.y = -14 / cam.z; invalidate();
+}
+function dmApply() {                                      // положить условие нового раунда на пустую доску (один раз на раунд)
+  const w = dm.want;
+  if (RO || !w || !online || dm.done === w.n) return;
+  dm.done = w.n;
+  objs.clear(); selected = null; hist = []; redo = []; syncButtons(); dm.skipClear++; send({ t: "clear" });
+  const im = new Image();
+  im.onload = () => {
+    const W = 900, o = { id: "task" + w.n + rnd(4), type: "image", x: 0, y: 0, w: W, h: Math.round(W * im.naturalHeight / im.naturalWidth), src: w.img };
+    dm.taskId = o.id; objs.set(o.id, o); send({ t: "add", o });
+    dm.autoFit = true; dmFit();                             // пока игрок сам не двигал доску, условие подгоняется под размер окна
+  };
+  im.src = w.img;
+}
+if (DM) {
+  for (const ev of ["pointerdown", "wheel"]) cv.addEventListener(ev, () => { dm.autoFit = false; }, { passive: true });
+  window.addEventListener("message", (e) => {
+    if (e.origin !== location.origin || !e.data || typeof e.data.dm !== "string") return;
+    const m = e.data;
+    if (m.dm === "round") { dm.want = m; dm.smoke = 0; dmApply(); }
+    else if (m.dm === "smoke") { dm.smoke = Math.max(0, Math.min(0.95, Number(m.a) || 0)); invalidate(); }
+    else if (m.dm === "end" && !RO && online) { objs.clear(); dm.skipClear++; send({ t: "clear" }); invalidate(); }
+  });
+  try { parent.postMessage({ dm: "ready" }, location.origin); } catch (e) {}
+}
+
 connect();
