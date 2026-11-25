@@ -89,7 +89,7 @@
     kbd.k { background: var(--bg); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; padding: 1px 6px; font: 700 12px system-ui; }
     /* ⚔️ доска внутри дуэли: только холст, инструменты и масштаб */
     body.dm { --bg: #f4f5f7; --panel: #ffffff; --text: #2b2f36; --muted: #7b828d; --line: #e1e4e8; --blue-bg: #e6f2fe; --shadow: 0 2px 10px rgba(20,30,50,.16); color-scheme: light; }
-    body.dm #top, body.dm #ans, body.dm #aip, body.dm #aib, body.dm #tasks, body.dm #fview, body.dm #help { display: none !important; }
+    body.dm #stBtn, body.dm #top, body.dm #ans, body.dm #aip, body.dm #aib, body.dm #tasks, body.dm #fview, body.dm #help { display: none !important; }
     body.dm.ro #tools, body.dm.ro #cp { display: none !important; }
     body.dm.ro #cv { cursor: grab; }
     @media (max-width: 760px) {
@@ -144,6 +144,7 @@
     <button class="tb" data-tool="eraser" title="Ластик (E)">🧽<kbd>E</kbd></button>
     <button class="tb" data-tool="text" title="Текст (T)">🔤<kbd>T</kbd></button>
     <button class="tb" id="imgBtn" title="Фото из галереи / файла (I)">🖼️<kbd>I</kbd></button>
+    <button class="tb" id="stBtn" title="Конструктор задач: статика (блоки, нити, рычаги)">📐</button>
     <div class="sep"></div>
     <span class="sw on" data-c="#222222" style="background:#222222" title="Чёрный (1)"></span>
     <span class="sw" data-c="#ffffff" style="background:#ffffff" title="Белый (2)"></span>
@@ -272,6 +273,6 @@
       <p style="color:var(--muted);font-size:13px;margin:10px 0 0">Картинки и текст можно двигать, у картинки есть уголок для изменения размера. Файлы можно перетащить прямо на доску.</p>
     </div>
   </div>
-  <script src="board.js?v=41"></script>
+  <script src="board.js?v=42"></script>
 </body>
 </html>

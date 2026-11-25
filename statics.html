@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <title>Конструктор задач: статика</title>
+  <script>if (!/[?&]embed=1/.test(location.search)) document.write('<script src="https://telegram.org/js/telegram-web-app.js"></' + 'script>');</script>
+  <style>
+    :root { --bg: #f4f5f7; --panel: #ffffff; --text: #2b2f36; --muted: #7b828d; --line: #e1e4e8; --blue: #1c8ef6; --blue-bg: #e6f2fe; --red: #e53935; --shadow: 0 2px 10px rgba(20,30,50,.14); }
+    @media (prefers-color-scheme: dark) { :root { --bg: #20232a; --panel: #2c3038; --text: #e8eaee; --muted: #9aa1ad; --line: #3d424c; --blue-bg: #213a57; --shadow: 0 2px 12px rgba(0,0,0,.5); } }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; overscroll-behavior: none; }
+    #app { display: grid; grid-template-columns: 1fr 320px; grid-template-rows: auto 1fr; height: 100%; gap: 8px; padding: 8px; }
+    #bar { grid-column: 1 / 3; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; background: var(--panel); border-radius: 14px; box-shadow: var(--shadow); padding: 6px; }
+    .tb { height: 38px; min-width: 38px; padding: 0 10px; border: 0; border-radius: 10px; background: none; color: var(--text); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 5px; white-space: nowrap; }
+    .tb:hover { background: var(--bg); } .tb.on { background: var(--blue-bg); color: var(--blue); } .tb:disabled { opacity: .35; cursor: default; }
+    .sep { width: 1px; height: 24px; background: var(--line); margin: 0 4px; }
+    #bar select { height: 38px; border: 2px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--text); font: inherit; font-size: 14px; padding: 0 8px; }
+    #stage { position: relative; background: #fff; border-radius: 14px; box-shadow: var(--shadow); overflow: hidden; min-height: 0; }
+    #cv { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; display: block; }
+    #hint { position: absolute; left: 12px; bottom: 10px; right: 12px; font-size: 13px; color: #7b828d; pointer-events: none; }
+    #side { background: var(--panel); border-radius: 14px; box-shadow: var(--shadow); padding: 12px; overflow-y: auto; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
+    #side h3 { margin: 0; font-size: 14px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+    .fld { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: 14px; }
+    .fld > label { flex: 1; } .fld input[type=text], .fld input[type=number], .fld select { width: 110px; height: 34px; border: 2px solid var(--line); border-radius: 9px; padding: 0 8px; font: inherit; background: var(--bg); color: var(--text); outline: none; }
+    .fld input:focus, .fld select:focus { border-color: var(--blue); }
+    .fld input[type=checkbox] { width: 22px; height: 22px; accent-color: var(--blue); }
+    .fld input[type=range] { width: 110px; accent-color: var(--blue); }
+    .fld .u { color: var(--muted); font-size: 13px; width: 38px; }
+    .empty { color: var(--muted); font-size: 14px; line-height: 1.45; }
+    #given { font-size: 14px; line-height: 1.5; background: var(--bg); border-radius: 10px; padding: 8px 10px; white-space: pre-wrap; }
+    .btn { height: 38px; border: 0; border-radius: 10px; padding: 0 12px; font: inherit; font-weight: 700; font-size: 14px; cursor: pointer; background: var(--blue); color: #fff; }
+    .btn.ghost { background: var(--blue-bg); color: var(--blue); } .btn.red { background: #fdecea; color: var(--red); }
+    .row { display: flex; gap: 6px; flex-wrap: wrap; }
+    .isim { display: none; } body.sim .isim { display: block; } body.sim .nsim { display: none; }
+    body.sim [data-tool], body.sim #undo, body.sim #redo, body.sim #clear, body.sim #presets { opacity: .35; pointer-events: none; }
+    #forces { font-size: 14px; line-height: 1.55; background: var(--bg); border-radius: 10px; padding: 8px 10px; white-space: pre-wrap; }
+    body.sim #stage { outline: 3px solid var(--blue); }
+    #toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: #2b2f36; color: #fff; padding: 9px 16px; border-radius: 12px; font-size: 14px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 20; }
+    #toast.show { opacity: .96; }
+    @media (max-width: 760px) {
+      #app { grid-template-columns: 1fr; grid-template-rows: auto minmax(220px, 1fr) minmax(130px, 38%); }
+      #bar { grid-column: 1; overflow-x: auto; flex-wrap: nowrap; } .tb .t { display: none; }
+      #side { padding: 10px; }
+    }
+  </style>
+</head>
+<body>
+<div id="app">
+  <div id="bar">
+    <button class="tb on" data-tool="select" title="Выбрать и двигать (V)">🖱️<span class="t">Выбрать</span></button>
+    <div class="sep"></div>
+    <button class="tb" data-tool="body" title="Груз">🧱<span class="t">Груз</span></button>
+    <button class="tb" data-tool="pulley" title="Блок">⚙️<span class="t">Блок</span></button>
+    <button class="tb" data-tool="beam" title="Рычаг / стержень">📏<span class="t">Рычаг</span></button>
+    <button class="tb" data-tool="ceil" title="Потолок">⬛<span class="t">Потолок</span></button>
+    <button class="tb" data-tool="floor" title="Пол / опора">▬<span class="t">Пол</span></button>
+    <div class="sep"></div>
+    <button class="tb" data-tool="thread" title="Нить: нажми две точки">🧵<span class="t">Нить</span></button>
+    <button class="tb" data-tool="rod" title="Стержень-связь: нажми две точки">➖<span class="t">Стержень</span></button>
+    <button class="tb" data-tool="hand" title="Рука: к ней привязывают нить, чтобы тянуть в опыте">✋<span class="t">Рука</span></button>
+    <button class="tb" data-tool="spring" title="Пружина: нажми две точки">🌀<span class="t">Пружина</span></button>
+    <div class="sep"></div>
+    <button class="tb" id="undo" title="Отменить (Ctrl+Z)">↩️</button>
+    <button class="tb" id="redo" title="Повторить (Ctrl+Shift+Z)">↪️</button>
+    <button class="tb" id="clear" title="Очистить всё">🗑️</button>
+    <div class="sep"></div>
+    <button class="tb" id="simBtn" title="Оживить рисунок: тяни за нить и смотри силы">▶<span class="t">Опыт</span></button>
+    <button class="tb" id="simReset" style="display:none" title="Начать опыт заново">🔄<span class="t">Заново</span></button>
+    <div class="sep"></div>
+    <select id="presets" title="Готовые примеры"><option value="">Примеры…</option></select>
+  </div>
+  <div id="stage"><canvas id="cv"></canvas><div id="hint"></div></div>
+  <div id="side">
+    <h3 class="nsim">Свойства</h3>
+    <div id="props" class="nsim"></div>
+    <h3 class="isim">Силы в опыте</h3>
+    <div id="forces" class="isim"></div>
+    <h3>Общее</h3>
+    <div class="fld"><label for="gSel">Ускорение свободного падения</label><select id="gSel"><option value="10">g = 10 м/с²</option><option value="9.8">g = 9,8 м/с²</option></select></div>
+    <div class="fld"><label for="showG">Показывать силы (стрелки)</label><input type="checkbox" id="showG" checked></div>
+    <div class="fld"><label for="capt">«Дано» под рисунком</label><input type="checkbox" id="capt" checked></div>
+    <h3 class="nsim">Дано</h3>
+    <div id="given" class="nsim"></div>
+    <div class="row">
+      <button class="btn" id="toBoard" style="display:none">📤 На доску</button>
+      <button class="btn ghost" id="save">💾 Скачать PNG</button>
+    </div>
+  </div>
+</div>
+<div id="toast"></div>
+<script src="statics.js?v=2"></script>
+<script src="statics_sim.js?v=3"></script>
+</body>
+</html>

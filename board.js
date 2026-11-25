@@ -1103,6 +1103,18 @@ function closeFormulas() {
 }
 $("fclose").onclick = closeFormulas;
 
+// ---------------------------------------------------------------- 📐 конструктор задач (статика): окно поверх доски, готовый рисунок попадает на доску картинкой
+function openStatics() {
+  $("fframe").src = "statics.html?embed=1"; $("fview").style.display = "flex";
+  try { if (tg && tg.BackButton) { tg.BackButton.show(); tg.BackButton.onClick(closeFormulas); } } catch (e) {}
+}
+$("stBtn").onclick = () => { if (!online) { toast("Нет связи с сервером"); return; } openStatics(); };
+window.addEventListener("message", (e) => {
+  const m = e.data;
+  if (!m || m.type !== "statics_png" || e.source !== $("fframe").contentWindow || typeof m.data !== "string" || !m.data.startsWith("data:image/")) return;
+  closeFormulas(); placeImage(m.data, +m.w || 600, +m.h || 400); toast("Рисунок добавлен на доску");
+});
+
 // ---------------------------------------------------------------- приглашение, помощь
 const inviteLink = () => (BOT ? `https://t.me/${BOT}?start=room_${ROOM}` : location.href);
 $("invite").onclick = () => {
