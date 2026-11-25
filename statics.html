@@ -50,16 +50,22 @@
   <div id="bar">
     <button class="tb on" data-tool="select" title="Выбрать и двигать (V)">🖱️<span class="t">Выбрать</span></button>
     <div class="sep"></div>
-    <button class="tb" data-tool="body" title="Груз">🧱<span class="t">Груз</span></button>
-    <button class="tb" data-tool="pulley" title="Блок">⚙️<span class="t">Блок</span></button>
-    <button class="tb" data-tool="beam" title="Рычаг / стержень">📏<span class="t">Рычаг</span></button>
+    <button class="tb" data-tool="body" title="Груз (брусок)">🧱<span class="t">Груз</span></button>
+    <button class="tb" data-tool="ball" title="Шар">🔴<span class="t">Шар</span></button>
+    <button class="tb" data-tool="knot" title="Узел: точка, где сходятся нити">⚫<span class="t">Узел</span></button>
+    <button class="tb" data-tool="pulley" title="Блок (подвижный или неподвижный)">⚙️<span class="t">Блок</span></button>
+    <button class="tb" data-tool="beam" title="Рычаг / стержень / балка">📏<span class="t">Рычаг</span></button>
+    <button class="tb" data-tool="spring" title="Пружина или динамометр">🌀<span class="t">Пружина</span></button>
+    <div class="sep"></div>
     <button class="tb" data-tool="ceil" title="Потолок">⬛<span class="t">Потолок</span></button>
-    <button class="tb" data-tool="floor" title="Пол / опора">▬<span class="t">Пол</span></button>
+    <button class="tb" data-tool="floor" title="Пол">▬<span class="t">Пол</span></button>
+    <button class="tb" data-tool="wall" title="Стена">▮<span class="t">Стена</span></button>
+    <button class="tb" data-tool="incline" title="Наклонная плоскость">◢<span class="t">Наклон</span></button>
     <div class="sep"></div>
     <button class="tb" data-tool="thread" title="Нить: нажми две точки">🧵<span class="t">Нить</span></button>
     <button class="tb" data-tool="rod" title="Стержень-связь: нажми две точки">➖<span class="t">Стержень</span></button>
+    <button class="tb" data-tool="force" title="Сила: стрелка, приложенная к точке">➡️<span class="t">Сила</span></button>
     <button class="tb" data-tool="hand" title="Рука: к ней привязывают нить, чтобы тянуть в опыте">✋<span class="t">Рука</span></button>
-    <button class="tb" data-tool="spring" title="Пружина: нажми две точки">🌀<span class="t">Пружина</span></button>
     <div class="sep"></div>
     <button class="tb" id="undo" title="Отменить (Ctrl+Z)">↩️</button>
     <button class="tb" id="redo" title="Повторить (Ctrl+Shift+Z)">↪️</button>
@@ -89,7 +95,7 @@
   </div>
 </div>
 <div id="toast"></div>
-<script src="statics.js?v=2"></script>
-<script src="statics_sim.js?v=3"></script>
+<script src="statics.js?v=4"></script>
+<script src="statics_sim.js?v=4"></script>
 </body>
 </html>
